@@ -31,5 +31,6 @@ publish a public release until a project-level `LICENSE` has been approved.
 .\scripts\test.ps1 -Suite all
 ```
 
-Only `doctor.ps1` is available in the repository-bootstrap stage. The other
-commands will be added with their corresponding implementation stages.
+Dependency packaging, bootstrap, and verification commands are available in
+Stage 2. Configure, build, test, and release commands will be added with their
+corresponding implementation stages.

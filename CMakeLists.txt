@@ -6,8 +6,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(NeuronBridgeOptions)
 include(platforms/WindowsMSVC)
+include(NeuronBridgeDependencies)
+
+if(NR_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests/dependencies)
+endif()
 
 message(STATUS "NeuronBridge repository bootstrap stage")
 message(STATUS "Full version: ${NR_VERSION_FULL}")
 message(STATUS "Core source migration: pending")
-message(STATUS "Bundled dependency migration: pending")
+message(STATUS "Bundled dependency migration: compatibility bundle r1")

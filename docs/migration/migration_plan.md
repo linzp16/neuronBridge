@@ -4,7 +4,7 @@
 
 - [x] Stage 0: record the source repository and migration boundary.
 - [x] Stage 1: create the clean repository skeleton and Git policy.
-- [ ] Stage 2: audit and package Windows bundled dependencies.
+- [x] Stage 2: audit and package Windows bundled dependencies.
 - [ ] Stage 3: migrate the C++/CUDA core without behavior changes.
 - [ ] Stage 4: migrate model specifications and the code generator.
 - [ ] Stage 5: migrate pybind11 bindings and the Python API.
@@ -18,7 +18,7 @@ migration commit.
 
 ## Stage gates
 
-Stage 2 starts only after the repository skeleton is approved. Stage 3 starts
-only after the dependency bundle can be restored and verified without using
-machine-specific paths. Public release remains blocked until the project owner
-approves a project-level license and copyright holder.
+Stage 3 may start because dependency bundle r1 can be restored, configured,
+linked, and executed without using the historical workspace paths. Public
+release remains blocked until the project owner approves a project-level
+license and copyright holder, and the dependency license review is complete.

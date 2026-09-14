@@ -1,6 +1,65 @@
 {
   "schema_version": 1,
   "project": "neuronbridge",
-  "bundles": [],
-  "status": "pending_dependency_migration"
+  "default_platform": "windows-x64-msvc",
+  "bundles": [
+    {
+      "bundle_id": "neuronbridge-deps-windows-x64-msvc-r1",
+      "platform_key": "windows-x64-msvc",
+      "architecture": "x86_64",
+      "compiler_abi": "msvc",
+      "revision": 1,
+      "archive": "bundles/windows-x64-msvc/neuronbridge-deps-windows-x64-msvc-r1.zip",
+      "archive_size_bytes": 292178558,
+      "archive_sha256": "a9565ff3c8c57ffe1321860e1025bdc30c15bd976380a62ac8d4a9dcc07a18c4",
+      "extract_root": "neuronbridge-deps-windows-x64-msvc-r1",
+      "install_subdir": "windows-x64-msvc/r1",
+      "payload_file_count": 26623,
+      "payload_size_bytes": 958256779.0,
+      "required_files": [
+        {
+          "path": "pinocchio-cpp/Library/lib/cmake/pinocchio/pinocchioConfig.cmake",
+          "minimum_size": 1024
+        },
+        {
+          "path": "pinocchio-cpp/Library/include/pinocchio/fwd.hpp",
+          "minimum_size": 256
+        },
+        {
+          "path": "pinocchio-cpp/Library/include/boost/any.hpp",
+          "minimum_size": 1024
+        },
+        {
+          "path": "pinocchio-cpp/Library/include/eigen3/Eigen/Core",
+          "minimum_size": 1024
+        },
+        {
+          "path": "pinocchio-cpp/Library/bin/pinocchio_default.dll",
+          "minimum_size": 1048576
+        },
+        {
+          "path": "pinocchio-cpp/Library/bin/pinocchio_parsers.dll",
+          "minimum_size": 1048576
+        },
+        {
+          "path": "zeromq/include/zmq.h",
+          "minimum_size": 4096
+        },
+        {
+          "path": "zeromq/lib/libzmq-mt-4_3_5.lib",
+          "minimum_size": 4096
+        },
+        {
+          "path": "zeromq/bin/libzmq-mt-4_3_5.dll",
+          "minimum_size": 4096
+        },
+        {
+          "path": "zeromq/share/cmake/ZeroMQ/ZeroMQConfig.cmake",
+          "minimum_size": 512
+        }
+      ],
+      "licensing_status": "review_required_before_public_redistribution"
+    }
+  ],
+  "status": "compatibility_bundle_validated"
 }
