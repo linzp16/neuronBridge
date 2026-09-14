@@ -1,0 +1,48 @@
+# Build and test output
+/build/
+/artifacts/
+/reports/generated/
+
+# Expanded bundled dependencies
+/dependencies/vendor/
+
+# Python environments and caches
+/.venv/
+/.conda/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+/python/build/
+/python/dist/
+
+# Visual Studio and CMake generated files
+/.vs/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Native build products
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.dll
+*.lib
+*.exe
+*.pyd
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
