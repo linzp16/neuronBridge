@@ -4,8 +4,9 @@ NeuronBridge is a Windows-first C++/CUDA neural simulation runtime with a
 Python 3.12 interface.
 
 This repository is being migrated from the historical `network_release`
-workspace. The repository skeleton is complete, but the simulation core and
-bundled dependency archive have not yet been imported.
+workspace. The Windows dependency bundle and the behavior-preserving native
+C++/CUDA runtime migration are complete. Model code generation, pybind11
+bindings, and user-facing examples remain staged work.
 
 ## Supported platform
 
@@ -21,16 +22,17 @@ bundled dependency archive have not yet been imported.
 See `docs/migration/migration_plan.md` for the staged migration status. Do not
 publish a public release until a project-level `LICENSE` has been approved.
 
-## Planned developer workflow
+## Native developer workflow
 
 ```powershell
 .\scripts\doctor.ps1
 .\scripts\bootstrap_dependencies.ps1
-.\scripts\configure.ps1 -Preset windows-msvc-cuda
-.\scripts\build.ps1 -Configuration Release
-.\scripts\test.ps1 -Suite all
+cmake --preset windows-msvc-cuda
+cmake --build --preset windows-msvc-cuda-release
+ctest --test-dir build\windows-msvc-cuda -C Release --output-on-failure
 ```
 
-Dependency packaging, bootstrap, and verification commands are available in
-Stage 2. Configure, build, test, and release commands will be added with their
-corresponding implementation stages.
+Run these commands from a Visual Studio 2022 developer PowerShell. The native
+build exports the CMake targets `NeuronBridge::CoreCpp`,
+`NeuronBridge::CoreCuda`, `NeuronBridge::DenseRuntime`, and the complete
+application-facing `NeuronBridge::Runtime` target.

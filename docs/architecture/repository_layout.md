@@ -4,9 +4,11 @@ The repository is a monorepo because the native runtime, Python bindings,
 generated models, and baseline tests evolve under one compatibility contract.
 
 - `include/neuronbridge`: public C++ headers.
-- `src/core`: scheduling, network, events, and simulation implementation.
-- `src/backends`: CPU and CUDA backend implementation.
-- `src/models`: handwritten neuron, learning-rule, and outer-dynamic models.
+- `src/native/legacy`: behavior-preserving event, network, simulation, and
+  handwritten model sources migrated in Stage 3.
+- `src/native/gpu`: CUDA backend, Dense runtime, InputConv, and debug monitor
+  sources migrated in Stage 3.
+- `src/native/shared`: cross-runtime model catalog implementation.
 - `src/generated`: maintainer-generated C++ and CUDA model sources.
 - `python/bindings`: pybind11 translation layer.
 - `python/src/neuronbridge`: stable Python user API.
@@ -18,3 +20,9 @@ generated models, and baseline tests evolve under one compatibility contract.
 - `scripts`: Windows environment, build, validation, and release orchestration.
 
 Build output and runtime data never share a directory with source files.
+
+The `src/native` layout is intentionally transitional. The historical
+`source_file_realtime_v1_async` include anchor remains intact so Stage 3 can be
+verified as a source-identical move. Renaming includes or splitting handwritten
+models into final ownership directories requires a later, separately tested
+maintenance change.
