@@ -36,9 +36,10 @@ CTest matrix passed 18 of 18 tests. The new release-tool suite passed 5 of 5.
 The repaired wheel passed static and isolated runtime validation:
 
 - File: `neuronbridge-0.1.0a0-cp312-cp312-win_amd64.whl`
-- Size: 3,923,036 bytes
-- SHA-256: `45977bbee2953fe5102d8ef41bcc31732d919a87da3c52a95718c37db8c21e05`
-- Native DLL entries: 6, with no forbidden build products
+- Size: 4,319,722 bytes
+- SHA-256: `fc223e412529821bbe29e890129fcb486aebbceec77013485846217aa7c150ae`
+- Native DLL entries: 13, including MSVC/OpenMP redistributables and no
+  forbidden build products
 - Backend: pybind11, CUDA enabled, Dense runtime enabled
 - `CustomRStdpV1`: weight `8.0 -> 13.345841407775879`
 - `CustomRStdpPersistentV1`: weight `8.0 -> 15.503661155700684`
