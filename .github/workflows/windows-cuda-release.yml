@@ -1,0 +1,89 @@
+name: windows-cuda-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_release:
+        description: Enforce the project LICENSE gate
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-validation:
+    runs-on: [self-hosted, Windows, X64, neuronbridge-cuda]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install release tools
+        run: >-
+          python -m pip install
+          "build>=1.2" "pybind11>=2.12" "scikit-build-core>=0.10" wheel "delvewheel>=1.9"
+          "pytest>=8" "numpy>=2.0" "matplotlib>=3.7" "pandas>=2.0" "pyzmq>=27"
+      - name: Restore dependencies
+        shell: powershell
+        run: .\scripts\bootstrap_dependencies.ps1
+      - name: Enforce public release policy
+        if: inputs.public_release
+        run: python scripts/check_release_metadata.py --require-license
+      - name: Configure CUDA validation
+        shell: powershell
+        run: |
+          . .\scripts\common.ps1
+          $python = (Get-Command python).Source
+          $pybind11 = python -m pybind11 --cmakedir
+          $command = 'cmake -S . -B build/ci-cuda -G "Visual Studio 17 2022" -A x64 ' +
+            '-DNR_ENABLE_CUDA=ON -DNR_ENABLE_PYTHON=ON ' +
+            '-DNR_ENABLE_MODEL_CODEGEN=ON -DNR_BUILD_TESTS=ON ' +
+            '-DNR_BUILD_EXAMPLES=ON -DNR_DEPENDENCY_MODE=BUNDLED ' +
+            '-DPython3_EXECUTABLE="' + $python + '" ' +
+            '-Dpybind11_DIR="' + $pybind11 + '"'
+          Invoke-CleanVsDevCommand -CommandLine $command
+      - name: Build and test CUDA matrix
+        shell: powershell
+        run: |
+          . .\scripts\common.ps1
+          Invoke-CleanVsDevCommand -CommandLine `
+            'cmake --build build/ci-cuda --config Release --parallel'
+          ctest --test-dir build/ci-cuda -C Release --output-on-failure
+      - name: Build and validate wheel
+        shell: powershell
+        run: |
+          .\scripts\build_neuronbridge_wheel.ps1 -PythonExe "$((Get-Command python).Source)"
+          .\scripts\check_neuronbridge_runtime_deps.ps1 -PythonExe "$((Get-Command python).Source)"
+          .\scripts\validate_neuronbridge_wheel.ps1 -PythonExe "$((Get-Command python).Source)"
+      - name: Build source package
+        shell: powershell
+        run: |
+          .\scripts\build_source_package.ps1
+          .\scripts\build_source_package.ps1 -IncludeDependencyBundle
+      - name: Build portable Python package
+        shell: powershell
+        run: |
+          $python = (Get-Command python).Source
+          .\scripts\build_neuronbridge_offline_bundle.ps1 `
+            -PythonExe $python `
+            -PythonRuntimeRoot (Split-Path -Parent $python) `
+            -DownloadDependencies
+      - name: Write checksums
+        shell: powershell
+        run: .\scripts\write_release_checksums.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neuronbridge-windows-cuda-${{ github.sha }}
+          path: |
+            artifacts/wheel/*.whl
+            artifacts/wheel/*.json
+            artifacts/source/*.zip
+            artifacts/offline/*.zip
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error

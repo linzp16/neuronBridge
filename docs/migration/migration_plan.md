@@ -9,7 +9,7 @@
 - [x] Stage 4: migrate model specifications and the code generator.
 - [x] Stage 5: migrate pybind11 bindings and the Python API.
 - [x] Stage 6: classify and migrate examples, tests, and baselines.
-- [ ] Stage 7: establish wheel, offline package, and GitHub CI workflows.
+- [x] Stage 7: establish wheel, offline package, and GitHub CI workflows.
 - [ ] Stage 8: perform the `0.1.0a0` release rehearsal from a clean tag.
 
 Each stage must produce an isolated commit and validation record. Directory
@@ -48,3 +48,13 @@ has an explicit optional bundle boundary. See
 Stage 7 may now establish wheel repair, offline dependency/data archives, and
 GitHub CI. Wheel validation must run from an environment that cannot see the
 source or build trees.
+
+Stage 7 is complete. The repaired Python 3.12 CUDA wheel, package-owned portable
+runtime, source/data archive tools, checksums, and hosted/self-hosted GitHub
+workflow boundary are implemented. The full Release matrix passed 18 of 18
+tests, and the installed wheel executed generated Dense CUDA neuron and learning
+rule paths from an isolated venv. See `stage7_release_packaging_audit.md`.
+
+Stage 8 must rehearse `0.1.0a0` from a clean tag, run the workflows on the new
+GitHub repository, and collect approval for the project LICENSE and dependency
+redistribution before any public release.

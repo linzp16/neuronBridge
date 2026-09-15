@@ -56,6 +56,7 @@ if(NR_BUILD_TESTS)
   endif()
   if(NR_ENABLE_PYTHON)
     add_subdirectory(tests/python)
+    add_subdirectory(tests/release)
   endif()
 endif()
 

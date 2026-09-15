@@ -7,8 +7,8 @@ This repository is being migrated from the historical `network_release`
 workspace. The Windows dependency bundle and the behavior-preserving native
 C++/CUDA runtime migration are complete. Maintainer-owned model code generation
 is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA. The
-Python 3.12 API, pybind11 bindings, and user-facing examples are integrated;
-release packaging remains staged work.
+Python 3.12 API, pybind11 bindings, user-facing examples, repaired wheel,
+portable offline packaging, and Windows GitHub CI workflows are integrated.
 
 ## Supported platform
 
@@ -47,3 +47,21 @@ pybind11 CMake package, then build `neuronbridge_python_core`. The importable
 build-tree package is written under
 `build\windows-msvc-cuda\python\Release\neuronbridge`; see
 `python/README.md` for commands and API ownership.
+
+## Release artifact workflow
+
+Release outputs are generated under `artifacts/` and are never committed:
+
+```powershell
+.\scripts\build_neuronbridge_wheel.ps1
+.\scripts\check_neuronbridge_runtime_deps.ps1
+.\scripts\validate_neuronbridge_wheel.ps1
+.\scripts\build_source_package.ps1
+.\scripts\write_release_checksums.ps1
+```
+
+The repaired wheel includes native runtime DLLs. The portable offline package
+also owns Python 3.12 and visualization/communication dependencies, so end users
+do not need a separate Python or compiler installation. See
+`docs/release/release_process.md` for the complete artifact matrix and release
+gates.

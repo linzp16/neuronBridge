@@ -1,202 +1,94 @@
-# neuronbridge packaging strategy
+# NeuronBridge packaging strategy
 
-## Local validation environment
+## Release baseline
 
-The current native-extension validation uses a project-local virtual environment:
+NeuronBridge targets CPython 3.12 on Windows x64. The maintained release build
+uses MSVC, CUDA, the bundled native dependency revision from
+`dependencies/manifest.json`, scikit-build-core, pybind11, and delvewheel.
+Build tools are maintainer dependencies and are not installed for users.
 
-```text
-D:\code_optimized\network_release\.venv-neuronbridge
-```
+`NR_ENABLE_PYTHON` and `NR_ENABLE_CUDA` remain enabled for release builds so
+Python and CUDA integration failures surface during normal validation.
 
-Installed Python build tools are under:
+## Python wheel
 
-```text
-D:\code_optimized\network_release\.venv-neuronbridge\Lib\site-packages
-```
+The Windows wheel contains:
 
-Python 3.12 is the release baseline. The current Python 3.12 validation environment is:
+- The public `neuronbridge` Python package.
+- `neuronbridge._core` built for CPython 3.12.
+- CUDA runtime, Pinocchio, ZeroMQ, OpenMP, and required MSVC runtime DLLs.
 
-```text
-D:\code_optimized\network_release\.conda-neuronbridge-py312
-```
+The CMake install step places direct runtime DLLs beside `_core`. Delvewheel
+then analyzes those binaries, adds the transitive non-system DLL closure, and
+patches package startup. Existing direct DLLs are analyzed instead of copied a
+second time.
 
-Installed Python build tools for the Python 3.12 baseline are under:
-
-```text
-D:\code_optimized\network_release\.conda-neuronbridge-py312\Lib\site-packages
-```
-
-The older `.venv-neuronbridge` Python 3.14 environment was used only for the first pybind11 smoke test and should not be treated as the release target.
-
-## Wheel distribution
-
-The normal Python distribution should be a Windows wheel containing:
-
-- `neuronbridge` Python package files.
-- `neuronbridge._core` native extension.
-- Required non-system runtime DLLs copied next to the extension module.
-
-The wheel must not require users to install:
-
-- Visual Studio or MSVC.
-- CMake.
-- pybind11.
-- scikit-build-core.
-- Pinocchio or ZeroMQ separately.
-- Project-private native runtime DLLs separately.
-
-The wheel may still require:
-
-- A compatible Python 3.12 interpreter.
-- NVIDIA GPU driver when GPU simulation is used.
-
-`python312.dll` is normally provided by the user's Python 3.12 installation and should not be treated as a wheel-bundled project dependency.
-
-## Portable offline distribution
-
-For users who should not install Python manually, provide a separate portable package that includes:
-
-- Embedded or packaged Python runtime.
-- The repaired `neuronbridge` wheel.
-- Python dependencies for visualization.
-- Native runtime DLLs.
-- Example scripts and small validation datasets.
-- Launch scripts that set `PYTHONPATH`/`PATH` internally.
-
-This is the correct format for "no extra environment installation" delivery. It is broader than a normal Python wheel because it owns the Python runtime too.
-
-## CMake default
-
-`NR_ENABLE_PYTHON` defaults to `ON` because `neuronbridge` is the primary release path. This makes Python 3.12, pybind11, Python include/lib, and native dependency packaging problems visible during normal development and CI instead of appearing only at final release time.
-
-Traditional C++-only validation can still opt out explicitly:
+Build and validate with:
 
 ```powershell
-cmake -S . -B build_cpp_only -DNR_ENABLE_PYTHON=OFF
+$env:NEURONBRIDGE_PYTHON = "C:\Python312\python.exe"
+.\scripts\bootstrap_dependencies.ps1
+.\scripts\build_neuronbridge_wheel.ps1
+.\scripts\check_neuronbridge_runtime_deps.ps1
+.\scripts\validate_neuronbridge_wheel.ps1
 ```
 
-## Native dependency handling
+Static inspection rejects debug/import-library products and requires the native
+extension, CUDA runtime, Pinocchio, and ZeroMQ. Dynamic inspection installs the
+wheel with `--no-deps` into a new venv and runs from an isolated directory. The
+CUDA acceptance exercises `CustomLifConductanceV1`, `CustomRStdpV1`,
+`CustomRStdpPersistentV1`, and `CustomPairStdpV1` through the public API.
 
-The current CMake build copies many runtime DLLs next to `_core*.pyd` during local builds. A release pipeline should still validate the final artifact in a clean environment, because local PATH entries can hide missing packaged DLLs.
+Wheel users provide only CPython 3.12 and a compatible NVIDIA driver. They do
+not install Visual Studio, CMake, CUDA Toolkit, pybind11, Pinocchio, or ZeroMQ.
 
-Recommended release checks:
+## Portable offline package
 
-- Build `neuronbridge_core` in Release mode through the Visual Studio Developer environment.
-- Repair or collect DLL dependencies for the wheel.
-- Install the produced wheel into a fresh virtual environment.
-- Run `import neuronbridge` and `neuronbridge.backend_info()`.
-- Open an existing DebugMonitor output directory.
-- Run a small visualization smoke test without requiring a compiler on the target machine.
+Users who should not install Python receive the portable ZIP built by
+`build_neuronbridge_offline_bundle.ps1`. It contains:
 
-## Current validation result
+- A reviewed Python 3.12 runtime under `runtime/`.
+- NeuronBridge and all Python dependencies preinstalled in
+  `runtime/Lib/site-packages`.
+- NumPy, Matplotlib, Pandas, and pyzmq with their transitive dependencies.
+- Native runtime DLLs already carried by the repaired wheel.
+- Migrated examples, third-party notices, launch scripts, and SHA-256 hashes.
 
-Validated locally on this machine with the Python 3.12 release baseline:
-
-- Visual Studio 2022 Community, MSVC 19.41.
-- CUDA Toolkit 12.6.
-- Python 3.12.14 in `.conda-neuronbridge-py312`.
-- pybind11 3.1.0.
-- pytest 9.1.1.
-- scikit-build-core 1.0.3.
-- numpy 2.5.2.
-- pyzmq 27.2.0 for optional ZMQ peer validation.
-
-The native extension built successfully:
-
-```text
-D:\code_optimized\network_release\python\src\neuronbridge\_core.cp312-win_amd64.pyd
-```
-
-The native import smoke test passed and reported `binding=pybind11`.
-
-## Current wheel validation
-
-The first Windows wheel has been generated:
-
-```text
-D:\code_optimized\network_release\python\dist\neuronbridge-0.1.0a0-cp312-cp312-win_amd64.whl
-```
-
-Build script:
+The runtime can come from a reviewed embeddable archive or an approved Python
+runtime root. Dependency resolution is performed with `--no-index` against a
+provided wheelhouse unless the maintainer explicitly requests downloads.
 
 ```powershell
-D:\code_optimized\network_release\scripts\build_neuronbridge_wheel.ps1
+.\scripts\build_neuronbridge_offline_bundle.ps1 `
+  -PythonRuntimeRoot C:\approved\python312-runtime `
+  -DependencyWheelhouse C:\approved\cp312-wheelhouse
 ```
 
-Validation script:
+After extraction, `neuronbridge-python.ps1` is the Python entry point and
+`run_smoke_test.ps1` verifies the packaged interpreter, native extension,
+visualization stack, communication stack, and an example CLI. No environment
+installation is required. CUDA execution still depends on the machine's NVIDIA
+driver.
 
-```powershell
-D:\code_optimized\network_release\scripts\validate_neuronbridge_wheel.ps1
-```
+## Source and data archives
 
-Runtime dependency inspection script:
+`build_source_package.ps1` creates a pure source ZIP by default. Passing
+`-IncludeDependencyBundle` creates the larger source-with-Windows-dependencies
+variant and rejects unresolved Git LFS pointers.
 
-```powershell
-D:\code_optimized\network_release\scripts\check_neuronbridge_runtime_deps.ps1
-```
+Large handwriting and EI datasets never enter Git or the wheel.
+`package_example_data.ps1` creates their separately versioned archive using the
+layout recorded in `examples/data/manifest.json` and writes per-file hashes.
 
-The wheel excludes stale `neuronbridge/Release/**` build outputs and contains the Python 3.12 extension plus same-directory runtime DLLs. Clean venv validation was run with `--no-deps` semantics and passed:
+`write_release_checksums.ps1` creates one `artifacts/SHA256SUMS.txt` for final
+wheel and ZIP artifacts.
 
-```text
-native_extension_loaded=True
-binding=pybind11
-cuda_enabled=True
-dense_runtime_enabled=True
-```
+## Automation boundary
 
-## Current offline package validation
+GitHub-hosted Windows CI validates metadata, the model generator, source-only
+Python APIs, PowerShell syntax, and the dependency archive. A self-hosted runner
+labelled `neuronbridge-cuda` owns full CUDA compilation, CTest, wheel repair,
+and installed-wheel execution.
 
-The first Python 3.12 offline package directory has been generated:
-
-```text
-D:\code_optimized\network_release\release\neuronbridge_offline_py312
-```
-
-The matching archive for handoff has also been generated:
-
-```text
-D:\code_optimized\network_release\release\neuronbridge_offline_py312.zip
-```
-
-Bundle script:
-
-```powershell
-D:\code_optimized\network_release\scripts\build_neuronbridge_offline_bundle.ps1
-```
-
-The package contains:
-
-- `wheels\neuronbridge-0.1.0a0-cp312-cp312-win_amd64.whl`
-- Dependency wheels for `numpy 2.5.2`, `matplotlib 3.11.1`, `pandas 3.0.5`, and `pyzmq 27.2.0`.
-- Transitive visualization dependencies: `contourpy`, `cycler`, `fonttools`, `kiwisolver`, `packaging`, `pillow`, `pyparsing`, `python-dateutil`, `six`, and `tzdata`.
-- Migrated Python examples.
-- Packaging/migration notes.
-- Offline install and smoke-test scripts.
-
-Offline install validation was run from local wheels only:
-
-```powershell
-D:\code_optimized\network_release\release\neuronbridge_offline_py312\install_neuronbridge_offline.ps1
-```
-
-The validation venv is:
-
-```text
-D:\code_optimized\network_release\release\neuronbridge_offline_py312\.venv-offline-validate
-```
-
-The native import smoke test passed:
-
-```text
-native_extension_loaded=True
-binding=pybind11
-cuda_enabled=True
-dense_runtime_enabled=True
-```
-
-The package smoke test also ran `examples\dense_run_no_debug.py --help` successfully.
-
-Remaining release hardening:
-
-- Add or reference an embedded Python 3.12 runtime for users without Python.
-- Validate the package on a clean target machine without Visual Studio, CMake, pybind11, or project build artifacts on PATH.
+Public release remains blocked until a project-level `LICENSE` is approved and
+the bundled dependency redistribution review is complete.

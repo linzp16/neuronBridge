@@ -40,3 +40,7 @@ files unless the generator contract explicitly permits it.
 Release artifacts must be built from a clean, tagged commit. Build trees,
 virtual environments, dependency extraction directories, and release outputs
 must not be committed.
+
+Before opening a release pull request, run the Release CTest matrix and the
+installed-wheel validator. `scripts/check_release_metadata.py` must pass;
+public releases additionally require `--require-license`.

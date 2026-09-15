@@ -53,6 +53,17 @@ install(TARGETS neuronbridge_python_core
     LIBRARY DESTINATION neuronbridge
     RUNTIME DESTINATION neuronbridge)
 
+if(NR_USING_BUNDLED_DEPENDENCIES)
+  install(FILES
+      "${NR_PINOCCHIO_PREFIX}/bin/pinocchio_default.dll"
+      "${NR_PINOCCHIO_PREFIX}/bin/boost_serialization.dll"
+      "${NR_ZEROMQ_PREFIX}/bin/libzmq-mt-4_3_5.dll"
+      DESTINATION neuronbridge)
+endif()
+if(NR_ENABLE_CUDA)
+  install(FILES ${_nr_cudart_runtime_dlls} DESTINATION neuronbridge)
+endif()
+
 if(NR_BUILD_TESTS)
   add_test(NAME neuronbridge_python_api
       COMMAND "${Python3_EXECUTABLE}" -m pytest -q

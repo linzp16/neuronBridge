@@ -13,6 +13,9 @@ migrated example integration suite, including communication negative tests,
 Dense/InputConv quick baselines, synthetic handwriting stage-3 execution, and
 optional external-data checks.
 
+`release/` validates version consistency, wheel archive policy, portable
+runtime packaging contracts, and the hosted/self-hosted CI boundary.
+
 When `NR_BUILD_EXAMPLES=ON`, CTest registers
 `neuronbridge_python_migrated_examples`. Missing optional data is reported as a
 skip; missing native capabilities or behavioral regressions are failures.
