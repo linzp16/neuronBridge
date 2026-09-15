@@ -6,8 +6,9 @@ Python 3.12 interface.
 This repository is being migrated from the historical `network_release`
 workspace. The Windows dependency bundle and the behavior-preserving native
 C++/CUDA runtime migration are complete. Maintainer-owned model code generation
-is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA.
-Pybind11 bindings and user-facing examples remain staged work.
+is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA. The
+Python 3.12 API and pybind11 bindings are integrated; user-facing examples and
+release packaging remain staged work.
 
 ## Supported platform
 
@@ -37,3 +38,12 @@ Run these commands from a Visual Studio 2022 developer PowerShell. The native
 build exports the CMake targets `NeuronBridge::CoreCpp`,
 `NeuronBridge::CoreCuda`, `NeuronBridge::DenseRuntime`, and the complete
 application-facing `NeuronBridge::Runtime` target.
+
+## Python developer workflow
+
+The default build also creates `neuronbridge._core` because
+`NR_ENABLE_PYTHON=ON`. Configure with a Python 3.12 interpreter and its
+pybind11 CMake package, then build `neuronbridge_python_core`. The importable
+build-tree package is written under
+`build\windows-msvc-cuda\python\Release\neuronbridge`; see
+`python/README.md` for commands and API ownership.
