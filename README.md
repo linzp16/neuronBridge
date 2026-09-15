@@ -7,8 +7,8 @@ This repository is being migrated from the historical `network_release`
 workspace. The Windows dependency bundle and the behavior-preserving native
 C++/CUDA runtime migration are complete. Maintainer-owned model code generation
 is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA. The
-Python 3.12 API and pybind11 bindings are integrated; user-facing examples and
-release packaging remain staged work.
+Python 3.12 API, pybind11 bindings, and user-facing examples are integrated;
+release packaging remains staged work.
 
 ## Supported platform
 

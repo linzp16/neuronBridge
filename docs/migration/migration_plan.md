@@ -8,7 +8,7 @@
 - [x] Stage 3: migrate the C++/CUDA core without behavior changes.
 - [x] Stage 4: migrate model specifications and the code generator.
 - [x] Stage 5: migrate pybind11 bindings and the Python API.
-- [ ] Stage 6: classify and migrate examples, tests, and baselines.
+- [x] Stage 6: classify and migrate examples, tests, and baselines.
 - [ ] Stage 7: establish wheel, offline package, and GitHub CI workflows.
 - [ ] Stage 8: perform the `0.1.0a0` release rehearsal from a clean tag.
 
@@ -39,3 +39,12 @@ simulation tests pass. See `stage5_python_bridge_audit.md` for the exact gate.
 
 Stage 6 may migrate examples and their baseline fixtures. It must consume the
 public Python API and must not add example-specific methods to `_core`.
+
+Stage 6 is complete. All maintained Python example sources use the public API,
+data-free integration and communication checks pass, and large research data
+has an explicit optional bundle boundary. See
+`stage6_examples_baselines_audit.md` for classification and evidence.
+
+Stage 7 may now establish wheel repair, offline dependency/data archives, and
+GitHub CI. Wheel validation must run from an environment that cannot see the
+source or build trees.

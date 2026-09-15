@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "distribution": "separate_optional_archive",
+  "layout": "<data_root>/<dataset>/input_data",
+  "datasets": [
+    {
+      "name": "handwriting_stage1",
+      "historical_file_count": 92,
+      "historical_size_bytes": 584690220,
+      "required_for_default_test": false
+    },
+    {
+      "name": "handwriting_stage2",
+      "historical_file_count": 92,
+      "historical_size_bytes": 584692917,
+      "required_for_default_test": false
+    },
+    {
+      "name": "handwriting_stage3",
+      "historical_file_count": 118,
+      "historical_size_bytes": 814783017,
+      "required_for_default_test": false
+    },
+    {
+      "name": "handwriting_stage3_framework",
+      "historical_file_count": 118,
+      "historical_size_bytes": 814832153,
+      "required_for_default_test": false
+    },
+    {
+      "name": "handwriting_stage4_different_position",
+      "historical_file_count": 78,
+      "historical_size_bytes": 2240565,
+      "required_for_default_test": false
+    },
+    {
+      "name": "ei_connectivity",
+      "required_for_default_test": false
+    }
+  ]
+}

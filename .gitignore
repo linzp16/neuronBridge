@@ -17,6 +17,11 @@ __pycache__/
 /python/build/
 /python/dist/
 
+# Optional example datasets are distributed separately
+/examples/data/*
+!/examples/data/README.md
+!/examples/data/manifest.json
+
 # Visual Studio and CMake generated files
 /.vs/
 CMakeCache.txt
