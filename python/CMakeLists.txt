@@ -1,6 +1,17 @@
 find_package(Python3 3.12 EXACT REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
 
+if(MSVC)
+  # Keep build-tree imports and installed wheels independent of a developer
+  # machine's PATH or a preinstalled Visual C++ redistributable.
+  set(CMAKE_INSTALL_OPENMP_LIBRARIES TRUE)
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+  include(InstallRequiredSystemLibraries)
+  if(NOT CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+    message(FATAL_ERROR "MSVC runtime libraries could not be located")
+  endif()
+endif()
+
 pybind11_add_module(neuronbridge_python_core MODULE
     bindings/neuronbridge_core.cpp)
 add_library(NeuronBridge::PythonCore ALIAS neuronbridge_python_core)
@@ -48,6 +59,14 @@ if(NR_ENABLE_CUDA)
       COMMAND_EXPAND_LISTS
       VERBATIM)
 endif()
+if(MSVC)
+  add_custom_command(TARGET neuronbridge_python_core POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+              "$<TARGET_FILE_DIR:neuronbridge_python_core>"
+      COMMAND_EXPAND_LISTS
+      VERBATIM)
+endif()
 
 install(TARGETS neuronbridge_python_core
     LIBRARY DESTINATION neuronbridge
@@ -62,6 +81,9 @@ if(NR_USING_BUNDLED_DEPENDENCIES)
 endif()
 if(NR_ENABLE_CUDA)
   install(FILES ${_nr_cudart_runtime_dlls} DESTINATION neuronbridge)
+endif()
+if(MSVC)
+  install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION neuronbridge)
 endif()
 
 if(NR_BUILD_TESTS)

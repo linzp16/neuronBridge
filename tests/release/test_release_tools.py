@@ -71,3 +71,11 @@ def test_portable_bundle_owns_python_and_offline_dependencies():
     assert "--no-index" in script
     assert "--ignore-installed" in script
     assert "SHA256SUMS.txt" in script
+
+
+def test_python_extension_bundles_msvc_and_openmp_runtimes():
+    cmake = (ROOT / "python" / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "CMAKE_INSTALL_OPENMP_LIBRARIES TRUE" in cmake
+    assert "include(InstallRequiredSystemLibraries)" in cmake
+    assert "${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}" in cmake
+    assert 'install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION neuronbridge)' in cmake

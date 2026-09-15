@@ -9,8 +9,9 @@ rehearsal remains Stage 8.
 
 ## Implemented release surfaces
 
-- CMake installs `_core.pyd` and its direct CUDA, Pinocchio, Boost, and ZeroMQ
-  runtime DLLs into the wheel staging tree.
+- CMake installs `_core.pyd`, the matching MSVC/OpenMP redistributables, and its
+  direct CUDA, Pinocchio, Boost, and ZeroMQ runtime DLLs into both the build-tree
+  import package and wheel staging tree.
 - `build_neuronbridge_wheel.ps1` uses the standard `build` frontend and repairs
   the Windows wheel with delvewheel. Existing direct DLLs are analyzed without
   being duplicated.
