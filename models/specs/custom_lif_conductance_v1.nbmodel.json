@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "kind": "custom_time_driven_neuron",
+  "variant_id": 10001,
+  "implementation_name": "CustomLifConductanceV1",
+  "canonical_name": "CustomLifConductanceV1",
+  "extends": {
+    "base_class": "CustomTimeDrivenNeuronModel",
+    "base_contract_version": 1
+  },
+  "api": {
+    "visibility": "experimental"
+  },
+  "backends": {"legacy_cpu": true, "legacy_gpu": true, "dense_gpu": true},
+  "dense_factory_model_id": 10001,
+  "parameters": {
+    "v_rest": {"api_name": "V_rest", "aliases": ["v_rest"], "default": -60.0},
+    "tau_m": {"api_name": "tau", "aliases": ["tau_m_ms"], "default": 20.0, "constraints": {"exclusive_min": 0.0}},
+    "v_threshold": {"api_name": "V_th", "aliases": ["v_threshold"], "default": -50.0},
+    "r": {"api_name": "R", "aliases": ["r"], "default": 1.0},
+    "v_reset": {"api_name": "V_reset", "aliases": ["v_reset"], "default": -60.0},
+    "tau_exc": {"api_name": "gexc_tau", "aliases": ["tau_exc_ms"], "default": 5.0, "constraints": {"exclusive_min": 0.0}},
+    "e_exc": {"api_name": "Eexc", "aliases": ["e_exc"], "default": 0.0},
+    "tau_inh": {"api_name": "ginh_tau", "aliases": ["tau_inh_ms"], "default": 10.0, "constraints": {"exclusive_min": 0.0}},
+    "e_inh": {"api_name": "Einh", "aliases": ["Einhibitory", "e_inh"], "default": -80.0},
+    "t_ref": {
+      "api_name": "t_ref",
+      "default": 50,
+      "storage": "int32",
+      "constraints": {"inclusive_min": 0}
+    }
+  },
+  "equations": "dv/dt = 0 + r * i_input / tau_m + g_exc * (e_exc - v) / tau_m + g_inh * (e_inh - v) / tau_m + (v_rest - v) / tau_m : mV\ndg_exc/dt = -g_exc / tau_exc : 1\ndg_inh/dt = -g_inh / tau_inh : 1\ndi_input/dt = 0 : nA",
+  "inputs": [
+    {"name": "g_exc", "kind": "excitatory_conductance"},
+    {"name": "g_inh", "kind": "inhibitory_conductance"},
+    {"name": "i_input", "kind": "current"}
+  ],
+  "events": {
+    "spike": {
+      "threshold": "v > v_threshold",
+      "reset": {"v": "v_reset"}
+    }
+  },
+  "integration": {
+    "method": "forward_euler",
+    "conductance_method": "exact_exponential",
+    "step_policy": "legacy_stride_squared"
+  },
+  "runtime": {
+    "voltage_state": "v",
+    "refractory_parameter": "t_ref",
+    "state_update": {
+      "v": {"method": "forward_euler", "initial": "v_rest", "unless_refractory": true},
+      "g_exc": {"method": "exact_exponential", "initial": "0"},
+      "g_inh": {"method": "exact_exponential", "initial": "0"},
+      "i_input": {"method": "hold", "initial": "0"}
+    },
+    "dense": {
+      "capability": "conductance_lif_v1",
+      "roles": {
+        "voltage_state": "v",
+        "excitatory_state": "g_exc",
+        "inhibitory_state": "g_inh",
+        "current_state": "i_input",
+        "rest_parameter": "v_rest",
+        "reset_parameter": "v_reset",
+        "threshold_parameter": "v_threshold",
+        "resistance_parameter": "r",
+        "membrane_tau_parameter": "tau_m",
+        "excitatory_tau_parameter": "tau_exc",
+        "inhibitory_tau_parameter": "tau_inh",
+        "excitatory_reversal_parameter": "e_exc",
+        "inhibitory_reversal_parameter": "e_inh",
+        "refractory_parameter": "t_ref"
+      }
+    },
+    "legacy_gpu": {
+      "capability": "conductance_lif_v1",
+      "implementation_name": "CustomLifConductanceV1_GPU",
+      "roles": {
+        "voltage_state": "v",
+        "excitatory_state": "g_exc",
+        "inhibitory_state": "g_inh",
+        "current_state": "i_input",
+        "rest_parameter": "v_rest",
+        "reset_parameter": "v_reset",
+        "threshold_parameter": "v_threshold",
+        "resistance_parameter": "r",
+        "membrane_tau_parameter": "tau_m",
+        "excitatory_tau_parameter": "tau_exc",
+        "inhibitory_tau_parameter": "tau_inh",
+        "excitatory_reversal_parameter": "e_exc",
+        "inhibitory_reversal_parameter": "e_inh",
+        "refractory_parameter": "t_ref"
+      }
+    }
+  },
+  "reference": {
+    "model": "TimeDrivenLIF_Exponential_double",
+    "backend": "legacy_cpu"
+  }
+}

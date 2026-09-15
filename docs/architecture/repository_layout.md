@@ -9,7 +9,8 @@ generated models, and baseline tests evolve under one compatibility contract.
 - `src/native/gpu`: CUDA backend, Dense runtime, InputConv, and debug monitor
   sources migrated in Stage 3.
 - `src/native/shared`: cross-runtime model catalog implementation.
-- `src/generated`: maintainer-generated C++ and CUDA model sources.
+- `build/<preset>/generated/model_codegen`: ephemeral C++ and CUDA output from
+  maintainer-owned specifications; generated build products are not committed.
 - `python/bindings`: pybind11 translation layer.
 - `python/src/neuronbridge`: stable Python user API.
 - `models/specs`: equation and event model descriptors.

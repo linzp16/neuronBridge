@@ -5,8 +5,9 @@ Python 3.12 interface.
 
 This repository is being migrated from the historical `network_release`
 workspace. The Windows dependency bundle and the behavior-preserving native
-C++/CUDA runtime migration are complete. Model code generation, pybind11
-bindings, and user-facing examples remain staged work.
+C++/CUDA runtime migration are complete. Maintainer-owned model code generation
+is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA.
+Pybind11 bindings and user-facing examples remain staged work.
 
 ## Supported platform
 

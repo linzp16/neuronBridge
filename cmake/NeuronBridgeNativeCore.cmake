@@ -14,10 +14,16 @@ file(GLOB_RECURSE NR_LEGACY_CPP_SOURCES CONFIGURE_DEPENDS
 
 set(NR_SHARED_SOURCES
     "${NR_SHARED_ROOT}/src/learning_rule/LearningRuleCatalog.cpp"
-    "${NR_SHARED_ROOT}/src/learning_rule/GeneratedLearningRuleCatalogEmpty.cpp"
     "${NR_SHARED_ROOT}/src/input_conv/InputConvModelCatalog.cpp"
-    "${NR_SHARED_ROOT}/src/neuron_model/NeuronModelCatalog.cpp"
-    "${NR_SHARED_ROOT}/src/neuron_model/GeneratedNeuronCatalogEmpty.cpp")
+    "${NR_SHARED_ROOT}/src/neuron_model/NeuronModelCatalog.cpp")
+
+if(NR_ENABLE_MODEL_CODEGEN)
+  list(APPEND NR_SHARED_SOURCES ${NR_CODEGEN_CPP_SOURCES})
+else()
+  list(APPEND NR_SHARED_SOURCES
+      "${NR_SHARED_ROOT}/src/learning_rule/GeneratedLearningRuleCatalogEmpty.cpp"
+      "${NR_SHARED_ROOT}/src/neuron_model/GeneratedNeuronCatalogEmpty.cpp")
+endif()
 
 set(NR_ZMQ_DRIVER_SOURCES
     "${NR_LEGACY_SRC_ROOT}/communication/src/ZmqSocket.cpp"
@@ -49,6 +55,10 @@ target_include_directories(neuronbridge_native_settings INTERFACE
     "${NR_GPU_ROOT}/include"
     "${NR_LEGACY_SRC_ROOT}/MotionEnergy/inc"
     "${NR_ZEROMQ_INCLUDE_DIR}")
+if(NR_ENABLE_MODEL_CODEGEN)
+  target_include_directories(neuronbridge_native_settings INTERFACE
+      "${NR_CODEGEN_INCLUDE_ROOT}")
+endif()
 target_compile_definitions(neuronbridge_native_settings INTERFACE
     _CRT_SECURE_NO_WARNINGS
     NOMINMAX
@@ -58,19 +68,27 @@ target_compile_definitions(neuronbridge_native_settings INTERFACE
     SNN_WITH_ZMQ=1
     SNN_WITH_PINOCCHIO=1
     NPGR_ENABLE_CUDA=$<BOOL:${NR_ENABLE_CUDA}>)
+if(NR_ENABLE_MODEL_CODEGEN)
+  target_compile_definitions(neuronbridge_native_settings INTERFACE
+      NR_ENABLE_MODEL_CODEGEN=1)
+endif()
 target_link_libraries(neuronbridge_native_settings INTERFACE
     NeuronBridge::Dependencies)
 if(MSVC)
   target_compile_options(neuronbridge_native_settings INTERFACE
-      $<$<COMPILE_LANGUAGE:CXX>:/EHsc /Zc:__cplusplus /bigobj /openmp>
+      $<$<COMPILE_LANGUAGE:CXX>:/EHsc /Zc:__cplusplus /bigobj /openmp /utf-8>
       $<$<COMPILE_LANGUAGE:CUDA>:-forward-slash-prefix-opts>
       $<$<COMPILE_LANGUAGE:CUDA>:-forward-unknown-to-host-compiler>
       $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/openmp>
-      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/EHsc>)
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/EHsc>
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
 endif()
 
 add_library(neuronbridge_core_cpp STATIC ${NR_CORE_CPP_SOURCES})
 add_library(NeuronBridge::CoreCpp ALIAS neuronbridge_core_cpp)
+if(NR_ENABLE_MODEL_CODEGEN)
+  add_dependencies(neuronbridge_core_cpp neuronbridge_model_codegen)
+endif()
 target_link_libraries(neuronbridge_core_cpp
     PUBLIC neuronbridge_native_settings)
 
@@ -88,9 +106,15 @@ if(NR_ENABLE_CUDA)
       "${NR_LEGACY_SRC_ROOT}/NeuralModel/src/TimeDrivenGPU/TimeDrivenLIF_Exponential_triple_GPU_Interface.cu"
       "${NR_LEGACY_SRC_ROOT}/NeuralModel/src/TimeDrivenGPU/TimeDrivenLIF_Voltage_jump_GPU_Interface.cu"
       "${NR_LEGACY_SRC_ROOT}/NeuralModel/src/TimeDrivenGPU/TimeDrivenNeuralModelGPU_Interface.cu")
+  if(NR_ENABLE_MODEL_CODEGEN)
+    list(APPEND NR_CORE_CUDA_SOURCES ${NR_CODEGEN_CUDA_SOURCES})
+  endif()
 
   add_library(neuronbridge_core_cuda STATIC ${NR_CORE_CUDA_SOURCES})
   add_library(NeuronBridge::CoreCuda ALIAS neuronbridge_core_cuda)
+  if(NR_ENABLE_MODEL_CODEGEN)
+    add_dependencies(neuronbridge_core_cuda neuronbridge_model_codegen)
+  endif()
   target_link_libraries(neuronbridge_core_cuda PUBLIC
       neuronbridge_native_settings
       CUDA::cudart
@@ -138,6 +162,9 @@ if(NR_ENABLE_CUDA)
 
   add_library(neuronbridge_dense_runtime STATIC ${NR_DENSE_RUNTIME_SOURCES})
   add_library(NeuronBridge::DenseRuntime ALIAS neuronbridge_dense_runtime)
+  if(NR_ENABLE_MODEL_CODEGEN)
+    add_dependencies(neuronbridge_dense_runtime neuronbridge_model_codegen)
+  endif()
   target_link_libraries(neuronbridge_dense_runtime PUBLIC
       neuronbridge_native_settings
       neuronbridge_core_cpp

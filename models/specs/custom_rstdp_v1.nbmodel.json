@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "custom_learning_rule",
+  "variant_id": 20001,
+  "implementation_name": "CustomRStdpV1",
+  "canonical_name": "CustomRStdpV1",
+  "extends": {"base_class": "CustomLearningRuleModel", "contract_version": 1},
+  "api": {"visibility": "experimental"},
+  "backends": {"legacy_cpu": true, "dense_gpu": true},
+  "dense_factory_model_id": 4,
+  "catalog_category": "reward_modulated",
+  "equations": "dpre_trace/dt = -pre_trace / ltp_tau : 1\ndpost_trace/dt = -post_trace / ltd_tau : 1\ndeligibility/dt = 0 : 1",
+  "parameters": {
+    "max_ltp": {"api_name": "Max_LTP", "default": 0.92},
+    "ltp_tau": {"api_name": "LTP_tau", "default": 16.8, "constraints": {"exclusive_min": 0.0}},
+    "max_ltd": {"api_name": "Max_LTD", "default": 0.53},
+    "ltd_tau": {"api_name": "LTD_tau", "default": 33.1, "constraints": {"exclusive_min": 0.0}},
+    "reward": {"api_name": "RewardFactor", "default": 1.0},
+    "punishment": {"api_name": "PunishmentFactor", "default": -1.0}
+  },
+  "events": {
+    "on_pre": ["pre_trace += 1", "eligibility += -max_ltd * post_trace"],
+    "on_post": ["post_trace += 1", "eligibility += pre_trace * max_ltp"],
+    "on_trigger": ["weight += trigger_factor * eligibility"]
+  },
+  "integration": {"method": "exact_exponential", "time": "arrival_ticks_times_base_dt", "eligibility": "hold"},
+  "trigger": {
+    "punishment_type": 1,
+    "reward_parameter": "reward",
+    "punishment_parameter": "punishment",
+    "clear_parameter": "ClearEligibilityAfterTrigger",
+    "clear_state": "eligibility",
+    "clear_default": true,
+    "weight_bounds": "connection"
+  },
+  "runtime": {
+    "dense": {
+      "capability": "reward_stdp_v1",
+      "roles": {
+        "pre_state": "pre_trace",
+        "post_state": "post_trace",
+        "eligibility_state": "eligibility",
+        "ltp_amplitude_parameter": "max_ltp",
+        "ltd_amplitude_parameter": "max_ltd",
+        "ltp_tau_parameter": "ltp_tau",
+        "ltd_tau_parameter": "ltd_tau",
+        "reward_parameter": "reward",
+        "punishment_parameter": "punishment"
+      }
+    }
+  },
+  "reference": "R_STDP"
+}

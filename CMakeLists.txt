@@ -27,16 +27,31 @@ if(NR_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
 endif()
 
+if(NR_ENABLE_MODEL_CODEGEN)
+  find_package(Python3 3.12 REQUIRED COMPONENTS Interpreter)
+  if(NOT Python3_VERSION MATCHES "^3\\.12(\\.|$)")
+    message(FATAL_ERROR
+        "Model code generation requires Python 3.12.x; found ${Python3_VERSION}. "
+        "Set Python3_EXECUTABLE to a Python 3.12 interpreter.")
+  endif()
+  include(NeuronBridgeModelCodegen)
+  nr_configure_model_codegen()
+endif()
+
 include(NeuronBridgeNativeCore)
 
 if(NR_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests/dependencies)
   add_subdirectory(tests/native)
+  if(NR_ENABLE_MODEL_CODEGEN)
+    add_subdirectory(tests/model_codegen)
+  endif()
 endif()
 
 message(STATUS "NeuronBridge native core migration stage")
 message(STATUS "Full version: ${NR_VERSION_FULL}")
 message(STATUS "Core source migration: enabled")
 message(STATUS "CUDA backend: ${NR_ENABLE_CUDA}")
+message(STATUS "Maintainer model codegen: ${NR_ENABLE_MODEL_CODEGEN}")
 message(STATUS "Bundled dependency migration: compatibility bundle r1")
