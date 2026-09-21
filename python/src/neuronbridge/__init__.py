@@ -88,6 +88,7 @@ def backend_info() -> dict:
         return {
             "package": "neuronbridge",
             "backend": "NeuronBridge runtime",
+            "binding": "pybind11",
             "native_extension_loaded": False,
             "api_stage": "python-api",
         }
