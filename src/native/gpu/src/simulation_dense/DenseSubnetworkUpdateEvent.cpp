@@ -31,10 +31,10 @@ void DenseSubnetworkUpdateEvent::ProcessEvent(Simulation* simulation, RealTimeRe
 }
 
 enum EventPriority DenseSubnetworkUpdateEvent::getPriority() {
-    // Dense subnetworks read InputConv device outputs through D2D bindings.
-    // EventQueue executes larger priority values first for the same timestep,
-    // so OUTERUPDATEEVENT runs after INPUTCONVEVENT and sees the latest buffer.
-    return OUTERUPDATEEVENT;
+    // EventQueue executes larger priority values first. Run the queue-local
+    // synchronization event first so cross-queue input buffers are flushed
+    // before this Dense runtime consumes them.
+    return DENSEUPDATEEVENT;
 }
 
 }  // namespace npgr

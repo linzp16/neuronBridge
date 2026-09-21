@@ -1,8 +1,14 @@
 include_guard(GLOBAL)
 
 find_package(OpenMP REQUIRED COMPONENTS CXX)
+find_package(Threads REQUIRED)
 
-set(NR_DEPENDENCY_PLATFORM_KEY "windows-x64-msvc" CACHE STRING
+if(WIN32)
+  set(_nr_default_dependency_platform "windows-x64-msvc")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_nr_default_dependency_platform "linux-x86_64-gcc-cuda12")
+endif()
+set(NR_DEPENDENCY_PLATFORM_KEY "${_nr_default_dependency_platform}" CACHE STRING
     "Bundled dependency platform key")
 set(NR_DEPENDENCY_ROOT "" CACHE PATH
     "Explicit expanded dependency root")
@@ -35,8 +41,9 @@ endif()
 if(NR_DEPENDENCY_MODE STREQUAL "BUNDLED" AND
    NOT IS_DIRECTORY "${NR_DEPENDENCY_ROOT}")
   message(FATAL_ERROR
-      "Bundled dependencies are not installed. Run "
-      ".\\scripts\\bootstrap_dependencies.ps1 before configuring.")
+      "Bundled dependencies for ${NR_DEPENDENCY_PLATFORM_KEY} are not "
+      "installed. Set NR_DEPENDENCY_ROOT or bootstrap the platform bundle "
+      "before configuring.")
 endif()
 
 set(_nr_use_bundled OFF)
@@ -47,8 +54,13 @@ elseif(NR_DEPENDENCY_MODE STREQUAL "AUTO")
 endif()
 
 if(_nr_use_bundled)
-  set(NR_PINOCCHIO_PREFIX
-      "${NR_DEPENDENCY_ROOT}/pinocchio-cpp/Library" CACHE PATH "" FORCE)
+  if(WIN32)
+    set(_nr_pinocchio_default
+        "${NR_DEPENDENCY_ROOT}/pinocchio-cpp/Library")
+  else()
+    set(_nr_pinocchio_default "${NR_DEPENDENCY_ROOT}/pinocchio")
+  endif()
+  set(NR_PINOCCHIO_PREFIX "${_nr_pinocchio_default}" CACHE PATH "" FORCE)
   set(NR_ZEROMQ_PREFIX
       "${NR_DEPENDENCY_ROOT}/zeromq" CACHE PATH "" FORCE)
 
@@ -64,8 +76,8 @@ if(_nr_use_bundled)
       NO_DEFAULT_PATH)
 
   find_library(NR_ZEROMQ_LIBRARY
-      NAMES libzmq-mt-4_3_5 libzmq
-      PATHS "${NR_ZEROMQ_PREFIX}/lib"
+      NAMES libzmq-mt-4_3_5 libzmq zmq
+      PATHS "${NR_ZEROMQ_PREFIX}/lib" "${NR_ZEROMQ_PREFIX}/lib64"
       NO_DEFAULT_PATH REQUIRED)
   find_path(NR_ZEROMQ_INCLUDE_DIR
       NAMES zmq.h
@@ -73,19 +85,42 @@ if(_nr_use_bundled)
       NO_DEFAULT_PATH REQUIRED)
 else()
   find_package(pinocchio CONFIG REQUIRED)
-  find_library(NR_ZEROMQ_LIBRARY NAMES libzmq-mt-4_3_5 libzmq REQUIRED)
+  find_library(NR_ZEROMQ_LIBRARY NAMES libzmq-mt-4_3_5 libzmq zmq REQUIRED)
   find_path(NR_ZEROMQ_INCLUDE_DIR NAMES zmq.h REQUIRED)
 endif()
 
+if(WIN32)
+  find_path(NR_CPPZMQ_INCLUDE_DIR NAMES zmq.hpp
+      HINTS "${NR_ZEROMQ_PREFIX}/include" "${NR_ZEROMQ_INCLUDE_DIR}")
+else()
+  find_path(NR_CPPZMQ_INCLUDE_DIR NAMES zmq.hpp
+      HINTS "${NR_ZEROMQ_PREFIX}/include" "${NR_ZEROMQ_INCLUDE_DIR}"
+      REQUIRED)
+endif()
+
+set(_nr_zeromq_include_dirs "${NR_ZEROMQ_INCLUDE_DIR}")
+if(NR_CPPZMQ_INCLUDE_DIR)
+  list(APPEND _nr_zeromq_include_dirs "${NR_CPPZMQ_INCLUDE_DIR}")
+endif()
+
 if(NOT TARGET NeuronBridgeZeroMQ)
-  add_library(NeuronBridgeZeroMQ SHARED IMPORTED)
+  if(WIN32)
+    add_library(NeuronBridgeZeroMQ SHARED IMPORTED)
+  else()
+    add_library(NeuronBridgeZeroMQ UNKNOWN IMPORTED)
+  endif()
   set_target_properties(NeuronBridgeZeroMQ PROPERTIES
-      IMPORTED_IMPLIB "${NR_ZEROMQ_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${NR_ZEROMQ_INCLUDE_DIR}")
-  if(_nr_use_bundled)
+      INTERFACE_INCLUDE_DIRECTORIES "${_nr_zeromq_include_dirs}")
+  if(WIN32)
     set_target_properties(NeuronBridgeZeroMQ PROPERTIES
-        IMPORTED_LOCATION
-        "${NR_ZEROMQ_PREFIX}/bin/libzmq-mt-4_3_5.dll")
+        IMPORTED_IMPLIB "${NR_ZEROMQ_LIBRARY}")
+  else()
+    set_target_properties(NeuronBridgeZeroMQ PROPERTIES
+        IMPORTED_LOCATION "${NR_ZEROMQ_LIBRARY}")
+  endif()
+  if(WIN32 AND _nr_use_bundled)
+    set_target_properties(NeuronBridgeZeroMQ PROPERTIES
+        IMPORTED_LOCATION "${NR_ZEROMQ_PREFIX}/bin/libzmq-mt-4_3_5.dll")
   endif()
   add_library(NeuronBridge::ZeroMQ ALIAS NeuronBridgeZeroMQ)
 endif()
@@ -94,11 +129,17 @@ add_library(neuronbridge_dependencies INTERFACE)
 add_library(NeuronBridge::Dependencies ALIAS neuronbridge_dependencies)
 target_link_libraries(neuronbridge_dependencies INTERFACE
     OpenMP::OpenMP_CXX
+    Threads::Threads
     pinocchio::pinocchio
     NeuronBridge::ZeroMQ)
-target_compile_definitions(neuronbridge_dependencies INTERFACE
-    _WIN32_WINNT=0x0A00
-    WINVER=0x0A00)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(neuronbridge_dependencies INTERFACE ${CMAKE_DL_LIBS})
+endif()
+if(WIN32)
+  target_compile_definitions(neuronbridge_dependencies INTERFACE
+      _WIN32_WINNT=0x0A00
+      WINVER=0x0A00)
+endif()
 
 set(NR_USING_BUNDLED_DEPENDENCIES "${_nr_use_bundled}" CACHE INTERNAL "")
 message(STATUS "NeuronBridge dependency mode: ${NR_DEPENDENCY_MODE}")

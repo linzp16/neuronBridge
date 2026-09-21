@@ -1,4 +1,5 @@
 ﻿#include "../source_file_realtime_v1_async/LearningRule/inc/State/STDP_State.h"
+#include <cmath>
 #include <iostream>
 
 STDP_State::STDP_State(int NumConnections, float LTP_tau, float LTD_tau) : SynapseState(NumConnections, 2), LTP_tau(LTP_tau), LTD_tau(LTD_tau) {
@@ -17,9 +18,9 @@ void STDP_State::SetUpdate(int ConnectionIndex, int Time, float Basetimestep) {
 	//计算衰减时间
 	float deltaTime = (Time - this->LastUpdate[ConnectionIndex]) * Basetimestep;
 	//计算LTP的衰减系数
-	this->StateDecay(ConnectionIndex, 0, exp(-deltaTime * this->inv_LTP_tau));
+	this->StateDecay(ConnectionIndex, 0, std::exp(-deltaTime * this->inv_LTP_tau));
 	//计算LTD的衰减系数
-	this->StateDecay(ConnectionIndex, 1, exp(-deltaTime * this->inv_LTD_tau));
+	this->StateDecay(ConnectionIndex, 1, std::exp(-deltaTime * this->inv_LTD_tau));
 	//更新最后更新时间
     this->LastUpdate[ConnectionIndex] = Time;
 }

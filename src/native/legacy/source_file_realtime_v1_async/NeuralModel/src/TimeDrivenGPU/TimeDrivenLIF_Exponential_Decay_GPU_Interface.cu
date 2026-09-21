@@ -78,6 +78,26 @@ void TimeDrivenLIF_Exponential_Decay_GPU_Interface::UpdateState(int index, int t
     LifDecay_GPU_Interface_Update<<<this->gridsize, this->blocksize, 0, this->computeStream>>>(
         this->NeuronModelOnGPU, time, simulation->basetimesteps);
     HANDLE_ERROR(cudaMemcpyAsync(state->InternalSpikeCPU, state->InternalSpikeGPU, sizeof(bool) * neuron_count, cudaMemcpyDeviceToHost, this->computeStream));
+    if (this->StateVector->IsMonitored) {
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->Vector_of_StateVariable,
+            state->Vector_of_StateVariableGPU,
+            state->NumberofNeuron * state->NumberofStateVariable * sizeof(float),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->LastUpdate,
+            state->LastUpdateGPU,
+            state->NumberofNeuron * sizeof(int),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->LastSpike,
+            state->LastSpikingGPU,
+            state->NumberofNeuron * sizeof(int),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+    }
     HANDLE_ERROR(cudaEventRecord(this->sync_event, this->computeStream));
     HANDLE_ERROR(cudaEventSynchronize(this->sync_event));
     memset(state->AuxStateCPU, 0, zero_size);

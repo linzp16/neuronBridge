@@ -1,0 +1,63 @@
+name: linux-cuda-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      wheel_platform:
+        description: auditwheel platform tag
+        required: true
+        default: manylinux_2_28_x86_64
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-validation:
+    runs-on: [self-hosted, Linux, X64, neuronbridge-cuda]
+    timeout-minutes: 180
+    env:
+      PYTHON_EXE: python3.12
+      NR_DEPENDENCY_MODE: BUNDLED
+      NR_DEPENDENCY_ROOT: /opt/neuronbridge/dependencies/linux-x86_64-gcc-cuda12/r1
+      NR_DEPENDENCY_PLATFORM_KEY: linux-x86_64-gcc-cuda12
+      NR_CUDA_ARCHITECTURES: 52;61;75;80;86;89
+      NR_WHEEL_PLATFORM: ${{ inputs.wheel_platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+      - name: Inspect CUDA host
+        run: |
+          nvidia-smi
+          nvcc --version
+          gcc --version
+          python3.12 --version
+      - name: Install Python build and test tools
+        run: >-
+          python3.12 -m pip install
+          "build>=1.2" "pybind11>=2.12" "scikit-build-core>=0.10"
+          wheel "auditwheel>=6" "pytest>=8"
+          "numpy>=2.0,<3.0" "matplotlib>=3.9" "contourpy>=1.3"
+          "pandas>=2.0" "pyzmq>=27"
+      - name: Check dependency bundle
+        run: test -d "${NR_DEPENDENCY_ROOT}"
+      - name: Build and repair Linux CUDA wheel
+        run: bash scripts/build_neuronbridge_wheel.sh
+      - name: Install repaired wheel
+        run: |
+          wheel_path="$(find artifacts/wheel-linux -maxdepth 1 -name 'neuronbridge-*.whl' -print -quit)"
+          python3.12 -m pip install --force-reinstall --no-deps "${wheel_path}"
+          python3.12 -c "import neuronbridge; print(neuronbridge.backend_info())"
+      - name: Run full Python regression suite
+        run: >-
+          python3.12 -m pytest -q tests/release tests/python python/tests
+          -k "not handwriting and not ei and not connectivity and not baseline_dense_mixed_current"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neuronbridge-linux-cuda-${{ github.sha }}
+          path: |
+            artifacts/wheel-linux/*.whl
+            artifacts/wheel-linux/*.json
+          if-no-files-found: error

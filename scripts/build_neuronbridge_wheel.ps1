@@ -45,6 +45,7 @@ $cmakeArgs = @(
     "-DNR_ENABLE_PYTHON=ON",
     "-DNR_ENABLE_CUDA=ON",
     "-DNR_ENABLE_MODEL_CODEGEN=ON",
+    "-DNR_BUNDLE_MSVC_RUNTIME=ON",
     "-DNR_BUILD_TESTS=OFF",
     "-DNR_BUILD_EXAMPLES=OFF",
     "-DNR_DEPENDENCY_MODE=BUNDLED",
@@ -89,6 +90,11 @@ if ($SkipRepair) {
 }
 
 $wheel = Get-LatestNeuronBridgeWheel -Directory $DistDir
+$privateRuntimeScript = Join-Path $PSScriptRoot "private_runtime_wheel.py"
+& $PythonExe $privateRuntimeScript $wheel.FullName
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to isolate bundled MSVC/OpenMP runtime DLL names in $($wheel.FullName)"
+}
 $report = Join-Path $DistDir "wheel-contents.json"
 & $PythonExe (Join-Path $PSScriptRoot "inspect_neuronbridge_wheel.py") `
     $wheel.FullName --output $report

@@ -1,5 +1,6 @@
 ﻿#include "../source_file_realtime_v1_async/NeuralModel/inc/NeuronModelPropogationStructure.h"
 #include "../source_file_realtime_v1_async/Openmp/inc/Openmp.h"
+#include <cstring>
 #include <iostream>
 
 NeuronModelPropogationStructure::NeuronModelPropogationStructure() {

@@ -72,8 +72,16 @@ bool SimulationDebugMonitor::CaptureStep(int time_step, std::string* reason) {
             return false;
         }
     }
-    if (!frame.empty() && !writer_.AppendFrame(frame, reason)) {
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!pending_main_spikes_.empty()) {
+            frame.spikes.insert(frame.spikes.end(), pending_main_spikes_.begin(),
+                                pending_main_spikes_.end());
+            pending_main_spikes_.clear();
+        }
+        if (!frame.empty() && !writer_.AppendFrame(frame, reason)) {
+            return false;
+        }
     }
     ++samples_since_flush_;
     if (samples_since_flush_ >= config_.flush_interval_steps) {
@@ -83,7 +91,47 @@ bool SimulationDebugMonitor::CaptureStep(int time_step, std::string* reason) {
     return true;
 }
 
+bool SimulationDebugMonitor::RecordMainNetworkSpike(int time_step,
+                                                    int global_neuron_id,
+                                                    int local_neuron_id,
+                                                    bool is_monitor,
+                                                    std::string* reason) {
+    (void)reason;
+    if (!enabled_ || !config_.record_spikes) {
+        return true;
+    }
+    bool selected = config_.all_neurons;
+    if (!selected && !config_.neuron_ids.empty()) {
+        selected = std::find(config_.neuron_ids.begin(), config_.neuron_ids.end(),
+                             global_neuron_id) != config_.neuron_ids.end();
+    }
+    if (!selected && config_.neuron_ids.empty()) {
+        selected = is_monitor;
+    }
+    if (!selected) {
+        return true;
+    }
+    DebugSpikeRecord record;
+    record.time_step = time_step;
+    record.component_kind = DebugComponentKind::MainNetwork;
+    record.component_index = 0;
+    record.component_name = "main_network";
+    record.global_neuron_id = global_neuron_id;
+    record.local_neuron_id = local_neuron_id;
+    std::lock_guard<std::mutex> lock(mutex_);
+    pending_main_spikes_.push_back(record);
+    return true;
+}
+
 bool SimulationDebugMonitor::Flush(std::string* reason) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!pending_main_spikes_.empty()) {
+        DebugMonitorFrame frame;
+        frame.spikes.swap(pending_main_spikes_);
+        if (!writer_.AppendFrame(frame, reason)) {
+            return false;
+        }
+    }
     return writer_.Flush(reason);
 }
 

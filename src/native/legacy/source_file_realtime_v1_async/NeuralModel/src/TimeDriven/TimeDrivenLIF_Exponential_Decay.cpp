@@ -5,6 +5,8 @@
 #include "../source_file_realtime_v1_async/connections/inc/Interconnections.h"
 #include "../source_file_realtime_v1_async/ModelFactory/IntegrationMethodFactory.h"
 
+#include <cmath>
+
 
 TimeDrivenLIF_Exponential_Decay::TimeDrivenLIF_Exponential_Decay():TimeDrivenModel(), CurrentSynapeModel(0) {
 	//初始化NeuronStateVector

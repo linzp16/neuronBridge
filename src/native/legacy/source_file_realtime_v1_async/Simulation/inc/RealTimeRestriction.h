@@ -2,6 +2,7 @@
 #define REAL_TIME_RESTRICTION_H
 
 #include <atomic>
+#include <array>
 #include <chrono>
 
 enum RealTimeRestrictionLevel {
@@ -25,6 +26,8 @@ public:
     void SetSleepPeriod(double new_sleep_period);
 
     RealTimeRestrictionLevel GetRestrictionLevel() const;
+    std::array<unsigned long long, 5> GetRestrictionLevelCounts() const;
+    void ResetRestrictionLevelCounts();
 
 private:
     void ResetClock();
@@ -45,6 +48,7 @@ private:
     std::atomic<bool> started;
     std::atomic<bool> primed;
     std::atomic<RealTimeRestrictionLevel> restriction_level;
+    std::array<std::atomic<unsigned long long>, 5> restriction_level_counts{};
     std::chrono::steady_clock::time_point start_time;
 };
 

@@ -1,6 +1,6 @@
 /*
-*  ÎÄ¼şÃû£ºRunge_Kutta4OnGPU.cuh
-* ¶¨ÒåÁËËÄ½×Áú¸ñ-¿âËş·¨ÔÚGPUÉÏµÄÊµÏÖ
+*  æ–‡ä»¶åï¼šRunge_Kutta4OnGPU.cuh
+* å®šä¹‰äº†å››é˜¶é¾™æ ¼-åº“å¡”æ³•åœ¨GPUä¸Šçš„å®ç°
 */
 
 #ifndef RUNGE_KUTTA4ONGPU_CUH
@@ -12,7 +12,7 @@ template<typename NeuronModelOnGPU>
 
 class Runge_Kutta4OnGPU : public FixStepOnGPU<NeuronModelOnGPU> {
 public:
-	//Ô¤ÏÈ·ÖÅä»ı·Ö·½·¨µÄÖĞ¼ä±äÁ¿
+	//é¢„å…ˆåˆ†é…ç§¯åˆ†æ–¹æ³•çš„ä¸­é—´å˜é‡
 	float* AuxNeuronState;
 	float* AuxNeuronState1;
 	float* AuxNeuronState2;
@@ -21,36 +21,36 @@ public:
 
 
 	/*
-	* ¹¹Ôìº¯Êı
+	* æ„é€ å‡½æ•°
 	*/
 
 	__device__ Runge_Kutta4OnGPU(NeuronModelOnGPU* Model, void** d_parm) : FixStepOnGPU<NeuronModelOnGPU>(Model, d_parm) {
-		// ÖĞ¼äÉñ¾­Ôª×´Ì¬
+		// ä¸­é—´ç¥ç»å…ƒçŠ¶æ€
 		this->AuxNeuronState = ((float*)d_parm[1]);
-		// ÖĞ¼äÔöÁ¿1
+		// ä¸­é—´å¢é‡1
 		this->AuxNeuronState1 = ((float*)d_parm[2]);
-		// ÖĞ¼äÔöÁ¿2
+		// ä¸­é—´å¢é‡2
 		this->AuxNeuronState2 = ((float*)d_parm[3]);
-		// ÖĞ¼äÔöÁ¿3
+		// ä¸­é—´å¢é‡3
 		this->AuxNeuronState3 = ((float*)d_parm[4]);
-		// ÖĞ¼äÔöÁ¿4
+		// ä¸­é—´å¢é‡4
 		this->AuxNeuronState4 = ((float*)d_parm[5]);
 
 	}
 
 	/*
-	* Îö¹¹º¯Êı
+	* ææ„å‡½æ•°
 	*/
 	__device__ ~Runge_Kutta4OnGPU() {}
 
 
 	/*
-	* ¼ÆËãÎ¢·Ö·½³ÌÔöÁ¿
+	* è®¡ç®—å¾®åˆ†æ–¹ç¨‹å¢é‡
 	*/
 	__device__ virtual void CaculateIncreament(int SizeStates, float* NeuronState) {
-		//¼ÆËãÏß³ÌË÷Òı
+		//è®¡ç®—çº¿ç¨‹ç´¢å¼•
 		int index = blockIdx.x * blockDim.x + threadIdx.x;
-		//¼ÆËãËùÓĞÓĞĞ§Ïß³Ì
+		//è®¡ç®—æ‰€æœ‰æœ‰æ•ˆçº¿ç¨‹
 		while (index < SizeStates) {
 
 			float previous_voltage = NeuronState[index];
@@ -59,30 +59,30 @@ public:
 
 			int GPU_offset = blockDim.x * blockIdx.x + threadIdx.x;
 
-			//¼ÆËãÔöÁ¿µÃµ½k1
+			//è®¡ç®—å¢é‡å¾—åˆ°k1
 			this->neuron_model->CaculateDifferentialEquation(index, SizeStates, NeuronState, this->AuxNeuronState1, this->dt);
 
 			for (int i = 0; i < this->neuron_model->N_DifferentialStates; i++) {
-				//¼ÆËãxn+1/2
+				//è®¡ç®—xn+1/2
 				AuxNeuronState[i * batch_offset + GPU_offset] = NeuronState[i * SizeStates + index] + AuxNeuronState1[i * batch_offset] * this->dt * 0.5f;
 			}
 
 			for (int i = this->neuron_model->N_DifferentialEqation; i < this->neuron_model->N_NeuronStateVariables; i++) {
 				AuxNeuronState[i * batch_offset + GPU_offset] = NeuronState[i * SizeStates + index];
 			}
-			//¼ÆËãµçµ¼Ë¥¼õ
+			//è®¡ç®—ç”µå¯¼è¡°å‡
 			this->neuron_model->CaculateTimeDependentEquation(GPU_offset, batch_offset, AuxNeuronState, this->dt * 0.5, 0);
-			//¼ÆËãÔöÁ¿µÃµ½k2
+			//è®¡ç®—å¢é‡å¾—åˆ°k2
 			this->neuron_model->CaculateDifferentialEquation(GPU_offset, batch_offset, AuxNeuronState, AuxNeuronState2, this->dt);
 
-			//¼ÆËãÔöÁ¿µÃµ½k3
+			//è®¡ç®—å¢é‡å¾—åˆ°k3
 			for (int i = 0; i < this->neuron_model->N_DifferentialStates; i++) {
 				AuxNeuronState[i * batch_offset + GPU_offset] = NeuronState[i * SizeStates + index] + AuxNeuronState2[i * batch_offset + GPU_offset] * this->dt * 0.5f
 			}
 
-			neuron_model->CaculateDifferentialEquation(GPU_offset, batch_offset, AuxNeuronState, AuxNeuronState3, this->dt);
+			this->neuron_model->CaculateDifferentialEquation(GPU_offset, batch_offset, AuxNeuronState, AuxNeuronState3, this->dt);
 
-			// ¼ÆËãxn+1
+			// è®¡ç®—xn+1
 			for (int i = 0; i < this->neuron_model->N_DifferentialStates; i++) {
 				AuxNeuronState[i * batch_offset + GPU_offset] = NeuronState[i * SizeStates + index] + AuxNeuronState3[i * batch_offset + GPU_offset] * dt;
 			}
@@ -90,7 +90,7 @@ public:
 			this->neuron_model->CaculateTimeDependentEquation(GPU_offset, batch_offset, AuxNeuronState, this->dt * 0.5, 0);
 			this->neuron_model->CaculateDifferentialEquation(GPU_offset, batch_offset, AuxNeuronState, AuxNeuronState4, this->dt);
 
-			//¼ÆËã×îÖÕµÄÔöÁ¿
+			//è®¡ç®—æœ€ç»ˆçš„å¢é‡
 			for (int i = 0; i < this->neuron_model->N_DifferentialStates; i++) {
 				NeuronState[i * SizeStates + index] += (AuxNeuronState1[i * batch_offset + GPU_offset] + 2 * (AuxNeuronState2[i * batch_offset + GPU_offset] + AuxNeuronState3[i * batch_offset + GPU_offset]) + AuxNeuronState4[i * batch_offset + GPU_offset]) * 0.166666666667f;
 			}
@@ -99,20 +99,20 @@ public:
 				NeuronState[i * SizeStates + index] = AuxNeuronState[i * batch_offset + GPU_offset];
 			}
 
-			// ÀÛ¼Ó¾àÀëÉÏ´Î·ÅµçµÄÊ±¼ä²½Êı
+			// ç´¯åŠ è·ç¦»ä¸Šæ¬¡æ”¾ç”µçš„æ—¶é—´æ­¥æ•°
 
 			this->neuron_model->Neuron_State_Vector->LastSpikeGPU[index] += 1;
 
-			//ÅĞ¶ÏÊÇ·ñ·Åµç
+			//åˆ¤æ–­æ˜¯å¦æ”¾ç”µ
 
 			this->neuron_model->CaculateSpike(previous_voltage, this->neuron_model->Neuron_State_Vector->Vector_of_State_VariableGPU, index, this->dt);
 
-			// ¼ì²é»ı·Ö½á¹ûÊÇ·ñÓĞĞ§
+			// æ£€æŸ¥ç§¯åˆ†ç»“æœæ˜¯å¦æœ‰æ•ˆ
 
 			this->neuron_model->CheckValidIntegeration(index);
 
 
-			//µ½ÏÂÒ»¸öbatch
+			//åˆ°ä¸‹ä¸€ä¸ªbatch
 			index += gridDim.x * blockDim.x;
 
 		}
@@ -120,7 +120,7 @@ public:
 
 	/*
 
-	* ÖØÖÃ×´Ì¬
+	* é‡ç½®çŠ¶æ€
 
 	*/
 
@@ -128,10 +128,10 @@ public:
 
 
 	/*
-	* ¼ÆËã³õÊ¼µçµ¼
+	* è®¡ç®—åˆå§‹ç”µå¯¼
 	*/
 	__device__ virtual void Calculate_conductance_exp_values() {
-		this->neuron_model->Initialize_conductance_exp_values(neuron_model->TimeDependentInputSize, 1);
+		this->neuron_model->Initialize_conductance_exp_values(this->neuron_model->TimeDependentInputSize, 1);
 		this->neuron_model->Caculate_Conductance(0, this->dt * 0.5)
 	}
 

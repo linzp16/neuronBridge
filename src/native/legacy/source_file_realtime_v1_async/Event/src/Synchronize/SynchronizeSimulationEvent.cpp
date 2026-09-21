@@ -12,5 +12,5 @@ void SynchronizeSimulationEvent::ProcessEvent(Simulation* sim) {
 }
 
 enum EventPriority SynchronizeSimulationEvent::getPriority() {
-	return SYNCHRONIZEACTIVITYEVENT;
+	return SYNCHRONIZESIMULATIONEVENT;
 }

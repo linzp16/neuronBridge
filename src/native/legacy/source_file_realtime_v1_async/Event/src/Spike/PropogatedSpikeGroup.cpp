@@ -32,6 +32,7 @@ void PropogatedSpikeGroup::ProcessEvent(Simulation* simulation) {
 
 void PropogatedSpikeGroup::ProcessEvent(Simulation* simulation, RealTimeRestrictionLevel level) {
 	if (level >= SPIKES_DISABLED) {
+		simulation->CountRealtimeSkipped(RealtimeSkipKind::PropagatedSpikeGroup);
 		return;
 	}
 	// 定义一个 Interconnections 指针
@@ -59,6 +60,8 @@ void PropogatedSpikeGroup::ProcessEvent(Simulation* simulation, RealTimeRestrict
 				if (lr != 0) {
 					lr->ApplyPreSynaticSpike(inter, this->getTime(), simulation);
 				}
+			} else {
+				simulation->CountRealtimeSkipped(RealtimeSkipKind::LearningUpdate);
 			}
 
 			inter++;

@@ -46,7 +46,10 @@ The default build also creates `neuronbridge._core` because
 pybind11 CMake package, then build `neuronbridge_python_core`. The importable
 build-tree package is written under
 `build\windows-msvc-cuda\python\Release\neuronbridge`; see
-`python/README.md` for commands and API ownership.
+`python/README.md` for commands and API ownership. Windows Python builds require
+`NR_BUNDLE_MSVC_RUNTIME=ON` (the default) and automatically rewrite bundled
+MSVC/OpenMP dependencies to private names. CMake stops instead of producing an
+unsafe importable package when that protection is disabled or unavailable.
 
 ## Release artifact workflow
 

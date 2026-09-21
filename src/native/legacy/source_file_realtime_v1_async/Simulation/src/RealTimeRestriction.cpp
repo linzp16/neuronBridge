@@ -19,6 +19,7 @@ RealTimeRestriction::RealTimeRestriction()
       primed(false),
       restriction_level(ALL_EVENTS_ENABLED),
       start_time(std::chrono::steady_clock::now()) {
+    ResetRestrictionLevelCounts();
 }
 
 void RealTimeRestriction::SetParameterWatchDog(double new_simulation_step_size, double new_max_simulation_time_in_advance,
@@ -40,6 +41,7 @@ void RealTimeRestriction::SetParameterWatchDog(double new_simulation_step_size, 
     started.store(false);
     primed.store(false);
     restriction_level.store(ALL_EVENTS_ENABLED);
+    ResetRestrictionLevelCounts();
     ResetClock();
 }
 
@@ -57,6 +59,7 @@ void RealTimeRestriction::StartWatchDog() {
     stop_requested.store(false);
     primed.store(false);
     restriction_level.store(ALL_EVENTS_ENABLED);
+    ResetRestrictionLevelCounts();
 }
 
 void RealTimeRestriction::StopWatchDog() {
@@ -95,30 +98,55 @@ RealTimeRestrictionLevel RealTimeRestriction::GetRestrictionLevel() const {
     return restriction_level.load();
 }
 
+std::array<unsigned long long, 5> RealTimeRestriction::GetRestrictionLevelCounts() const {
+    std::array<unsigned long long, 5> result{};
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        result[index] = restriction_level_counts[index].load(std::memory_order_relaxed);
+    }
+    return result;
+}
+
+void RealTimeRestriction::ResetRestrictionLevelCounts() {
+    for (std::atomic<unsigned long long>& counter : restriction_level_counts) {
+        counter.store(0, std::memory_order_relaxed);
+    }
+}
+
 void RealTimeRestriction::ResetClock() {
     start_time = std::chrono::steady_clock::now();
 }
 
 void RealTimeRestriction::UpdateRestrictionLevel(double current_time) {
     const double gap = simulation_time - current_time;
+    RealTimeRestrictionLevel new_level = ALL_EVENTS_ENABLED;
     if (gap >= max_simulation_time_in_advance) {
-        restriction_level.store(SIMULATION_TOO_FAST);
+        new_level = SIMULATION_TOO_FAST;
+        restriction_level.store(new_level);
+        restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
         std::cout << "Simulation is too fast!" << std::endl;
     }
     else if (gap > first_gap_time) {
-        restriction_level.store(ALL_EVENTS_ENABLED);
+        new_level = ALL_EVENTS_ENABLED;
+        restriction_level.store(new_level);
+        restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
         std::cout << "Simulation is running in real time." << std::endl;
     }
     else if (gap > second_gap_time) {
-        restriction_level.store(LEARNING_RULES_DISABLED);
+        new_level = LEARNING_RULES_DISABLED;
+        restriction_level.store(new_level);
+        restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
         std::cout << "Learning rules are disabled." << std::endl;
     }
     else if (gap > 0) {
-        restriction_level.store(SPIKES_DISABLED);
+        new_level = SPIKES_DISABLED;
+        restriction_level.store(new_level);
+        restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
         std::cout << "Spikes are disabled." << std::endl;
     }
     else {
-        restriction_level.store(ALL_UNESSENTIAL_EVENTS_DISABLED);
+        new_level = ALL_UNESSENTIAL_EVENTS_DISABLED;
+        restriction_level.store(new_level);
+        restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
         std::cout << "All unessential events are disabled." << std::endl;
     }
 }

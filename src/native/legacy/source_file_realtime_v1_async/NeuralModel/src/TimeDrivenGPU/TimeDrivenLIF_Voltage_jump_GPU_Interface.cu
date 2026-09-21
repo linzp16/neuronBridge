@@ -78,6 +78,26 @@ void TimeDrivenLIF_Voltage_jump_GPU_Interface::UpdateState(int index, int time, 
     LifVoltageJump_GPU_Interface_Update<<<this->gridsize, this->blocksize, 0, this->computeStream>>>(
         this->NeuronModelOnGPU, time, simulation->basetimesteps);
     HANDLE_ERROR(cudaMemcpyAsync(state->InternalSpikeCPU, state->InternalSpikeGPU, sizeof(bool) * neuron_count, cudaMemcpyDeviceToHost, this->computeStream));
+    if (this->StateVector->IsMonitored) {
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->Vector_of_StateVariable,
+            state->Vector_of_StateVariableGPU,
+            state->NumberofNeuron * state->NumberofStateVariable * sizeof(float),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->LastUpdate,
+            state->LastUpdateGPU,
+            state->NumberofNeuron * sizeof(int),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+        HANDLE_ERROR(cudaMemcpyAsync(
+            state->LastSpike,
+            state->LastSpikingGPU,
+            state->NumberofNeuron * sizeof(int),
+            cudaMemcpyDeviceToHost,
+            this->computeStream));
+    }
     HANDLE_ERROR(cudaEventRecord(this->sync_event, this->computeStream));
     HANDLE_ERROR(cudaEventSynchronize(this->sync_event));
     memset(state->AuxStateCPU, 0, zero_size);
@@ -92,7 +112,7 @@ void TimeDrivenLIF_Voltage_jump_GPU_Interface::InitStateVector(int NumberofNeuro
     HANDLE_ERROR(cudaStreamCreate(&this->copyStream));
     HANDLE_ERROR(cudaStreamCreate(&this->computeStream));
     this->State_GPU = static_cast<Neuron_State_Vector_Interface*>(this->StateVector);
-    float new_init[] = {this->V_rest + this->init[0], this->init[1]};
+    float new_init[] = {this->V_reset + this->init[0], this->init[1]};
     float new_sigma[] = {this->sigma[0], this->sigma[1]};
     this->State_GPU->InitNeuronStateGPU(NumberofNeuron, new_init, new_sigma, this->N_TimedependentInput, this->deviceProp);
     this->InitializeClassGPU2(NumberofNeuron);

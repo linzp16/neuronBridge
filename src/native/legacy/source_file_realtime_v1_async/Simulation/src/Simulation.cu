@@ -305,6 +305,40 @@ void Simulation::ResetForNextRound(bool preserve_weights) {
 	npgr::sim_support::ResetForNextRound(this, preserve_weights);
 }
 
+void Simulation::CountRealtimeSkipped(RealtimeSkipKind kind) {
+	const std::size_t index = static_cast<std::size_t>(kind);
+	if (index < realtime_skip_counters.size()) {
+		realtime_skip_counters[index].fetch_add(1, std::memory_order_relaxed);
+	}
+}
+
+std::array<unsigned long long, static_cast<std::size_t>(RealtimeSkipKind::Count)> Simulation::GetRealtimeSkipCounters() const {
+	std::array<unsigned long long, static_cast<std::size_t>(RealtimeSkipKind::Count)> result{};
+	for (std::size_t index = 0; index < result.size(); ++index) {
+		result[index] = realtime_skip_counters[index].load(std::memory_order_relaxed);
+	}
+	return result;
+}
+
+void Simulation::ResetRealtimeSkipCounters() {
+	for (std::atomic<unsigned long long>& counter : realtime_skip_counters) {
+		counter.store(0, std::memory_order_relaxed);
+	}
+}
+
+std::array<unsigned long long, 5> Simulation::GetRealtimeRestrictionCounts() const {
+	if (RealTimeRestrictionObject == NULL) {
+		return {};
+	}
+	return RealTimeRestrictionObject->GetRestrictionLevelCounts();
+}
+
+void Simulation::ResetRealtimeRestrictionCounts() {
+	if (RealTimeRestrictionObject != NULL) {
+		RealTimeRestrictionObject->ResetRestrictionLevelCounts();
+	}
+}
+
 
 
 
@@ -554,6 +588,14 @@ void Simulation::SynchronizeThread(RealTimeRestrictionLevel restrictionLevel) {
 
 void Simulation::WriteSpike(Spike* spike) {
 	Neuron* neuron = spike->SourceNeuron;
+	// DebugMonitor must observe the event here. Sampling neuron_state_vector at
+	// the end of Simulation::RunSimulationStep is too late: transient spike
+	// flags have already been cleared by TimeDrivenInternalSpike::ProcessEvent.
+	if (this->debug_monitor != NULL && neuron != NULL) {
+		this->debug_monitor->RecordMainNetworkSpike(
+			spike->getTime(), neuron->Neuron_index,
+			neuron->index_in_NeuronModel, neuron->IsMonitor, NULL);
+	}
 	//判断是否为输出神经元
 	if (neuron->IsOutput) {
 		if (this->outer_dynamic_spike_buffer != NULL) {

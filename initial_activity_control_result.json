@@ -1,0 +1,24 @@
+{
+  "steps": 30000,
+  "input_spikes": 300,
+  "total_output_spikes": 449,
+  "ring0_spikes": 225,
+  "ring1_spikes": 224,
+  "ring0_active": true,
+  "ring1_active": true,
+  "ring0_neurons": [
+    11
+  ],
+  "ring1_neurons": [
+    9,
+    28
+  ],
+  "ring0_first_last_ms": [
+    121,
+    29988
+  ],
+  "ring1_first_last_ms": [
+    120,
+    29944
+  ]
+}

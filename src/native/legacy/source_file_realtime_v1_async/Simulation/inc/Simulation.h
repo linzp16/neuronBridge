@@ -22,10 +22,12 @@
 #include "../source_file_realtime_v1_async/communication/inc/FileOutputSpikeDriver.h"
 #include "../source_file_realtime_v1_async/communication/inc/FileOutputWeightDriver.h"
 #include "../source_file_realtime_v1_async/communication/inc/OuterDynamicStateDriver.h"
+#include "../source_file_realtime_v1_async/communication/inc/DriverType.h"
 #include "simulation_dense/SimulationConnectionWeightRef.h"
 #include "debug_monitor/DebugMonitorTypes.h"
 #include "RealTimeRestriction.h"
 #include <atomic>
+#include <array>
 #include <list>
 #include <map>
 #include <mutex>
@@ -51,6 +53,20 @@ struct DenseSubnetworkDebugSnapshot;
 }
 
 enum EventQueueType { EVENT_QUEUE_HEAP, EVENT_QUEUE_TIMING_WHEEL };
+
+enum class RealtimeSkipKind : std::size_t {
+    InputSpike = 0,
+    PropagatedSpike,
+    PropagatedSpikeGroup,
+    TriggerRelaySpike,
+    TimeDrivenSpike,
+    LearningUpdate,
+    SynchronizeActivity,
+    InputConv,
+    OuterUpdate,
+    UnessentialEvent,
+    Count
+};
 
 // Latest observable state for one named OuterDynamic instance. The legacy
 // single-state fields remain below for compatibility with existing callers.
@@ -118,6 +134,7 @@ public:
     bool PrintSimulationTime;
     std::thread watchdogThread;
     std::atomic<bool> watchdogStarted{ false };
+    std::array<std::atomic<unsigned long long>, static_cast<std::size_t>(RealtimeSkipKind::Count)> realtime_skip_counters{};
 
     // Event queue implementation selector.
     EventQueueType eventQueueType;
@@ -236,6 +253,11 @@ public:
     void InitSimulation();
     // Clears dynamic state and prepares the event queue for another run.
     void ResetForNextRound(bool preserve_weights = true);
+    void CountRealtimeSkipped(RealtimeSkipKind kind);
+    std::array<unsigned long long, static_cast<std::size_t>(RealtimeSkipKind::Count)> GetRealtimeSkipCounters() const;
+    void ResetRealtimeSkipCounters();
+    std::array<unsigned long long, 5> GetRealtimeRestrictionCounts() const;
+    void ResetRealtimeRestrictionCounts();
     // Marks one queue as complete.
     void EndSimulation(int QueueIndex);
     // Synchronizes queues for cross-queue spike propagation.

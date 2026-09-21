@@ -18,7 +18,7 @@ struct BufferedActivityTimesData {
 	int N_elements; //有效放电的个数
 	int first_element; //缓冲区中第一个元素的位置(最新加入的元素位置)
 	int last_element;  //缓冲区中最后一个元素的位置(最早加入的元素位置 - 1)
-	SpikeData* SpikeData; //神经元的放电缓冲区
+	SpikeData* spike_data; //神经元的放电缓冲区
 };
 
 class BufferedActivityTime {
@@ -60,8 +60,8 @@ class BufferedActivityTime {
 				structure[neuronID].first_element = 0;
 			}
 			// 更新最新元素的数据
-			structure[neuronID].SpikeData[structure[neuronID].first_element].time = time;
-			structure[neuronID].SpikeData[structure[neuronID].first_element].synapticID = synapticID;
+			structure[neuronID].spike_data[structure[neuronID].first_element].time = time;
+			structure[neuronID].spike_data[structure[neuronID].first_element].synapticID = synapticID;
 
 		}
 
@@ -78,10 +78,10 @@ class BufferedActivityTime {
 				int counter = 0;
 				//从缓冲区中提取有效放电
 				while (i != structure[neuronID].last_element) {
-					if (structure[neuronID].SpikeData[i].time > thresholdtime) {
+					if (structure[neuronID].spike_data[i].time > thresholdtime) {
 						//判断时间是否越过时间窗口阈值
-						output_spike_data[OpenmpID][counter].time = structure[neuronID].SpikeData[i].time;
-						output_spike_data[OpenmpID][counter].synapticID = structure[neuronID].SpikeData[i].synapticID;
+						output_spike_data[OpenmpID][counter].time = structure[neuronID].spike_data[i].time;
+						output_spike_data[OpenmpID][counter].synapticID = structure[neuronID].spike_data[i].synapticID;
 						counter++;
 						//如果指向列表开始，则指向列表末尾
 						if (i == 0) {
@@ -112,14 +112,14 @@ class BufferedActivityTime {
 					last_element = 0;
 				}
 				//如果last_element是可丢弃的
-				if (structure[index].SpikeData[last_element].time < ThrethholdTime) {
+				if (structure[index].spike_data[last_element].time < ThrethholdTime) {
 					int i = structure[index].first_element - structure[index].size / 2;
 					if (i < 0) {
 						i += structure[index].size;
 					}
 					int counter = structure[index].size / 2;
 					while (i != structure[index].last_element) {
-						if (structure[index].SpikeData[i].time > ThrethholdTime) {
+						if (structure[index].spike_data[i].time > ThrethholdTime) {
 							counter++;
 							if (i == 0) {
 								i = structure[index].size;
@@ -134,9 +134,9 @@ class BufferedActivityTime {
 					}
 				}
 				else {//如果last_element不可丢弃，则进行扩容
-					SpikeData* aux_data = structure[index].SpikeData;
+					SpikeData* aux_data = structure[index].spike_data;
 					//容量翻倍
-					structure[index].SpikeData = new SpikeData[structure[index].size * 2];
+					structure[index].spike_data = new SpikeData[structure[index].size * 2];
 					int i = structure[index].last_element;
 					int counter = 0;
 					// 从最早的一个元素开始，将数据复制到新的缓冲区中
@@ -145,8 +145,8 @@ class BufferedActivityTime {
 						if (i == structure[index].size) {
 							i = 0;
 						}
-						structure[index].SpikeData[counter].time = aux_data[i].time;
-						structure[index].SpikeData[counter].synapticID = aux_data[i].synapticID;
+						structure[index].spike_data[counter].time = aux_data[i].time;
+						structure[index].spike_data[counter].synapticID = aux_data[i].synapticID;
 						counter++;
 					}while (i != structure[index].first_element);
 					structure[index].size *= 2;

@@ -315,7 +315,16 @@ bool DenseSubnetworkModel::AdvanceStep(int time_step, EventQueue* event_queue, s
                 new PropogatedSpikeGroup(result.time_step + connection->delay, output_queue_index);
             group->IncludeNewSourceNeuron(1, connection);
             group->SourceNeuron = connection->SourceNeuron;
-            event_queue->Insert_a_Event(group, output_queue_index);
+            if (output_queue_index == queue_index_) {
+                event_queue->Insert_a_Event(group, output_queue_index);
+            } else {
+                // EventQueue heaps are owned by their worker queue and are
+                // not safe for direct cross-thread insertion. Use the
+                // producer-to-consumer buffer, which is flushed by the
+                // synchronization event.
+                event_queue->Insert_a_Event_to_Buffer(
+                    group, queue_index_, output_queue_index);
+            }
             g_dense_output_spike_count.fetch_add(1, std::memory_order_relaxed);
         }
     }

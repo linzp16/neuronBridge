@@ -19,6 +19,9 @@ void TriggerRelayInternalSpike::ProcessEvent(Simulation* simulation) {
 
 void TriggerRelayInternalSpike::ProcessEvent(Simulation* simulation, RealTimeRestrictionLevel level) {
     if (level >= SPIKES_DISABLED || simulation == nullptr || this->SourceNeuron == nullptr) {
+        if (simulation != nullptr && level >= SPIKES_DISABLED) {
+            simulation->CountRealtimeSkipped(RealtimeSkipKind::TriggerRelaySpike);
+        }
         return;
     }
 
@@ -45,6 +48,9 @@ void TriggerRelayInternalSpike::ProcessEvent(Simulation* simulation, RealTimeRes
     }
 
     if (level >= LEARNING_RULES_DISABLED || simulation->network == nullptr) {
+        if (level >= LEARNING_RULES_DISABLED && simulation != nullptr) {
+            simulation->CountRealtimeSkipped(RealtimeSkipKind::LearningUpdate);
+        }
         return;
     }
     const int learning_rule_count = simulation->network->LearningRuleNum;

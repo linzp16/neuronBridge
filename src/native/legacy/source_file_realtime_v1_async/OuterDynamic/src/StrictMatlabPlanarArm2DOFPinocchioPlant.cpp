@@ -10,8 +10,12 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody.hpp>
-#include <pinocchio/spatial.hpp>
+#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody/frame.hpp>
+#include <pinocchio/multibody/joint/joint-revolute.hpp>
+#include <pinocchio/multibody/model.hpp>
+#include <pinocchio/spatial/inertia.hpp>
+#include <pinocchio/spatial/se3.hpp>
 #endif
 
 namespace {

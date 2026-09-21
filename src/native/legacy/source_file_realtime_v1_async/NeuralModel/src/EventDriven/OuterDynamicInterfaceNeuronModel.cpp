@@ -19,14 +19,14 @@ std::vector<int> GetVectorIntParameter(const std::map<std::string, boost::any>& 
 }  // namespace
 
 OuterDynamicInterfaceNeuronModel::OuterDynamicInterfaceNeuronModel()
-    : EventDrivenInputDevice(), simulation_(NULL) {
+    : EventDrivenInputDevice(), simulation_(NULL), endpoint_global_start_(-1) {
     std::string name = "OuterDynamicInterfaceNeuronModel";
     this->setModelName(name);
     this->TimeDriven = false;
 }
 
 OuterDynamicInterfaceNeuronModel::OuterDynamicInterfaceNeuronModel(int timestep)
-    : EventDrivenInputDevice(timestep), simulation_(NULL) {
+    : EventDrivenInputDevice(timestep), simulation_(NULL), endpoint_global_start_(-1) {
     std::string name = "OuterDynamicInterfaceNeuronModel";
     this->setModelName(name);
     this->TimeDriven = false;
@@ -50,13 +50,24 @@ void OuterDynamicInterfaceNeuronModel::ConfigureFromParameters(
     this->ConfigureEndpointBindings(
         GetVectorIntParameter(parameters, "outer_dynamic_ids_by_neuron"),
         GetVectorIntParameter(parameters, "outer_dynamic_joint_ids_by_neuron"));
+    std::map<std::string, boost::any>::const_iterator start_it =
+        parameters.find("outer_dynamic_endpoint_global_start");
+    if (start_it != parameters.end()) {
+        this->endpoint_global_start_ = boost::any_cast<int>(start_it->second);
+    }
 }
 
 InternalSpike* OuterDynamicInterfaceNeuronModel::ProcessSpike(Interconnections* inter, int time) {
     if (this->simulation_ == NULL || inter == NULL || inter->TargetNeuron == NULL) {
         return NULL;
     }
-    const int local_index = inter->TargetNeuron->index_in_NeuronModel;
+    // Network creates one model instance per OpenMP queue, so
+    // index_in_NeuronModel is queue-local and repeats from zero.  Resolve the
+    // endpoint through its global neuron id to avoid routing every queue's
+    // local prefix to the same OuterDynamic slots.
+    const int local_index = this->endpoint_global_start_ >= 0
+                                ? inter->TargetNeuron->Neuron_index - this->endpoint_global_start_
+                                : inter->TargetNeuron->index_in_NeuronModel;
     if (local_index < 0 ||
         local_index >= static_cast<int>(this->outer_dynamic_id_by_neuron_.size()) ||
         local_index >= static_cast<int>(this->joint_id_by_neuron_.size())) {
@@ -91,5 +102,6 @@ std::map<std::string, boost::any> OuterDynamicInterfaceNeuronModel::getParameter
     std::map<std::string, boost::any> parameters;
     parameters["outer_dynamic_ids_by_neuron"] = this->outer_dynamic_id_by_neuron_;
     parameters["outer_dynamic_joint_ids_by_neuron"] = this->joint_id_by_neuron_;
+    parameters["outer_dynamic_endpoint_global_start"] = this->endpoint_global_start_;
     return parameters;
 }

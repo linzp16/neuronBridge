@@ -1,8 +1,8 @@
 /*
 
-* 文件名：ForwardEulerMethodOnGPU.cuh
+* 鏂囦欢鍚嶏細ForwardEulerMethodOnGPU.cuh
 
-* 定义了前向欧拉法在 GPU 上的实现
+* 瀹氫箟浜嗗墠鍚戞鎷夋硶鍦? GPU 涓婄殑瀹炵幇
 
 */
 
@@ -24,7 +24,7 @@ class ForwardEulerMethodOnGPU :public FixStepOnGPU<NeuronModelOnGPU> {
 
 public:
 
-	//辅助增量向量
+	//杈呭姪澧為噺鍚戦噺
 
 	float* AuxNeuronState;
 
@@ -32,7 +32,7 @@ public:
 
 	/*
 
-	* 构造函数
+	* 鏋勯?犲嚱鏁?
 
 	*/
 
@@ -46,7 +46,7 @@ public:
 
 	/*
 
-	* 析构函数
+	* 鏋愭瀯鍑芥暟
 
 	*/
 
@@ -58,13 +58,13 @@ public:
 
 	/*
 
-	* 计算微分方程增量
+	* 璁＄畻寰垎鏂圭▼澧為噺
 
 	*/
 
 	__device__ virtual void CaculateIncreament(int SizeStates, float* NeuronState) {
 
-		//计算线程索引
+		//璁＄畻绾跨▼绱㈠紩
 
 		int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -72,11 +72,11 @@ public:
 
 			float previous_voltage = NeuronState[index];
 
-			//计算增量
+			//璁＄畻澧為噺
 
 			this->neuron_model->CaculateDifferentialEquation(index, SizeStates, NeuronState, this->AuxNeuronState, this->dt);
 
-			// 将微分方程结果累加回状态变量
+			// 灏嗗井鍒嗘柟绋嬬粨鏋滅疮鍔犲洖鐘舵?佸彉閲?
 
 			int batch_offset = gridDim.x * blockDim.x;
 
@@ -88,19 +88,19 @@ public:
 
 			}
 
-			//计算电导
+			//璁＄畻鐢靛
 
 			this->neuron_model->CaculateTimeDependentEquation(index, SizeStates, NeuronState, this->dt, 0);
 
-			// 累加距离上次放电的时间步数
+			// 绱姞璺濈涓婃鏀剧數鐨勬椂闂存鏁?
 
 			this->neuron_model->Neuron_State_Vector->LastSpikeGPU[index] += 1;
 
-			//判断是否放电
+			//鍒ゆ柇鏄惁鏀剧數
 
 			this->neuron_model->CaculateSpike(previous_voltage, this->neuron_model->Neuron_State_Vector->Vector_of_State_VariableGPU, index, this->dt);
 
-			// 检查积分结果是否有效
+			// 妫?鏌ョН鍒嗙粨鏋滄槸鍚︽湁鏁?
 
 			this->neuron_model->CheckValidIntegeration(index);
 
@@ -118,7 +118,7 @@ public:
 
 	/*
 
-	* 重置状态
+	* 閲嶇疆鐘舵??
 
 	*/
 
@@ -130,13 +130,13 @@ public:
 
 	/*
 
-	* 计算电导
+	* 璁＄畻鐢靛
 
 	*/
 
 	__device__ virtual void Calculate_conductance_exp_values() {
 
-		this->neuron_model->Initialize_conductance_exp_values(neuron_model->TimeDependentInputSize, 1);
+		this->neuron_model->Initialize_conductance_exp_values(this->neuron_model->TimeDependentInputSize, 1);
 
 		this->neuron_model->Caculate_Conductance(0, this->dt);
 

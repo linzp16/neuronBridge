@@ -166,6 +166,7 @@ bool DenseSubnetworkRuntimeGpu::ResetState(std::string* reason) {
     current_step_output_firing_ids_.clear();
     current_time_step_ = 0;
     prepared_interface_time_step_ = -1;
+    pending_interface_spikes_.clear();
     device_interface_source_ = nullptr;
     device_interface_source_count_ = 0;
     std::fill(interface_current_connection_values_.begin(),
@@ -511,13 +512,13 @@ bool DenseSubnetworkRuntimeGpu::QueueInterfaceSpike(const DenseInterfaceSpikeInp
         }
         return false;
     }
-    (void)input.inhibitory;
-    return this->AccumulateInterfaceBatchItemToHost(
-        input.interface_slot_index,
-        interface_pending_channels_[static_cast<std::size_t>(input.interface_slot_index)],
-        input.weight,
-        interface_scales_[static_cast<std::size_t>(input.interface_slot_index)],
-        reason);
+    // Do not accumulate directly into the current-step host buffer.  A
+    // cross-queue propagated spike with this timestamp may still be processed
+    // after the Dense update event on another queue.  Retain the timestamp and
+    // commit it from PrepareInterfaceInputsForStep once the step is complete.
+    pending_interface_spikes_.push_back(input);
+    prepared_interface_time_step_ = -1;
+    return true;
 }
 
 bool DenseSubnetworkRuntimeGpu::SetInterfaceCurrentConnection(int current_connection_index,
@@ -597,7 +598,26 @@ bool DenseSubnetworkRuntimeGpu::PrepareInterfaceInputsForStep(int time_step, std
     if (prepared_interface_time_step_ == time_step) {
         return true;
     }
-    // prepare interface inputs for the given time step
+    // Commit only inputs from completed simulation steps.  Same-time inputs
+    // remain pending until the next Dense update, after every OpenMP queue has
+    // had an opportunity to process its propagated-spike events.
+    std::vector<DenseInterfaceSpikeInput> remaining;
+    remaining.reserve(pending_interface_spikes_.size());
+    for (const DenseInterfaceSpikeInput& input : pending_interface_spikes_) {
+        if (input.time_step < time_step) {
+            if (!this->AccumulateInterfaceBatchItemToHost(
+                    input.interface_slot_index,
+                    interface_pending_channels_[static_cast<std::size_t>(input.interface_slot_index)],
+                    input.weight,
+                    interface_scales_[static_cast<std::size_t>(input.interface_slot_index)],
+                    reason)) {
+                return false;
+            }
+        } else {
+            remaining.push_back(input);
+        }
+    }
+    pending_interface_spikes_.swap(remaining);
     prepared_interface_time_step_ = time_step;
     return true;
 }

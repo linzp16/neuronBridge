@@ -51,3 +51,7 @@ CTestTestfile.cmake
 *.log
 *.tmp
 *.bak
+
+# Local simulation and training output
+/debug_monitor/
+/direct_train_*/

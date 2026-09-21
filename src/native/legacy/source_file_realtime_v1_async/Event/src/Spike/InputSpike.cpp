@@ -30,6 +30,7 @@ void InputSpike::ProcessEvent(Simulation* simulation) {
 
 void InputSpike::ProcessEvent(Simulation* simulation, RealTimeRestrictionLevel level) {
 	if (level >= SPIKES_DISABLED) {
+		simulation->CountRealtimeSkipped(RealtimeSkipKind::InputSpike);
 		return;
 	}
 	this->ProcessEvent(simulation);

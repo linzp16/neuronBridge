@@ -8,7 +8,7 @@ BufferedActivityTime::BufferedActivityTime(int newsize) {
 		this->structure[i].first_element = 0;
 		this->structure[i].last_element = 0;
 		this->structure[i].N_elements = 0;
-		this->structure[i].SpikeData = new SpikeData[2];
+		this->structure[i].spike_data = new SpikeData[2];
 	}
 	this->size_output_array = new int[NumberOfOpenMPQueues];
 	this->output_spike_data = new SpikeData*[NumberOfOpenMPQueues];
@@ -21,7 +21,7 @@ BufferedActivityTime::BufferedActivityTime(int newsize) {
 
 BufferedActivityTime::~BufferedActivityTime() {
 	for (int i = 0; i < this->BufferSize; i++) {
-		delete[] this->structure[i].SpikeData;
+		delete[] this->structure[i].spike_data;
 	}
 	for (int i = 0; i < NumberOfOpenMPQueues; i++) {
 		delete[] this->output_spike_data[i];

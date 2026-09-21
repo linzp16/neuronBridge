@@ -11,10 +11,16 @@ int* GPUIndex;//GPU索引列表指针
 */
 void setNumberOfOpenMPQueues(int n) {
 	// 设置 CPU 线程数
-	// 判断是否超过 CPU 核心数
-	if (n > omp_get_max_threads()) {
-		n = omp_get_max_threads();
-		std::cout << "Warning: Number of OpenMP queues is greater than the number of CPU cores. Setting it to the number of CPU cores." << n << std::endl;
+	// omp_get_max_threads() 是进程当前的可变线程设置；不能把它当作硬件上限。
+	// 例如前一个仿真设置 queues=1 后，它会变成 1，导致后续 queues=2/4
+	// 被错误地降级为单线程。使用 omp_get_num_procs() 获取稳定的处理器上限。
+	int available_processors = omp_get_num_procs();
+	if (available_processors <= 0) {
+		available_processors = omp_get_max_threads();
+	}
+	if (n > available_processors) {
+		n = available_processors;
+		std::cout << "Warning: Number of OpenMP queues exceeds available OpenMP processors. Setting it to " << n << std::endl;
 	}
     #ifdef _OPENMP
 	    std::cout << "OpenMP support is enabled" << std::endl;

@@ -25,11 +25,66 @@
 #include "source_file_realtime_v1_async/OuterDynamic/inc/OuterDynamicSpikeCounter.h"
 #include "source_file_realtime_v1_async/Simulation/inc/InputConvDescription.h"
 #include "source_file_realtime_v1_async/Simulation/inc/Simulation.h"
+#include "source_file_realtime_v1_async/communication/inc/DriverType.h"
+#include "source_file_realtime_v1_async/mainprogram/inc/BenchProfiling.h"
 #include "neuron_model/NeuronModelCatalog.h"
 
 namespace py = pybind11;
 
 namespace {
+
+py::dict BenchProfileSnapshotToDict(const bench_profile::Snapshot& snapshot) {
+    py::dict data;
+    data["event_remove_ns"] = snapshot.event_remove_ns;
+    data["event_buffer_insert_ns"] = snapshot.event_buffer_insert_ns;
+    data["event_buffer_flush_ns"] = snapshot.event_buffer_flush_ns;
+    data["wheel_insert_ns"] = snapshot.wheel_insert_ns;
+    data["wheel_remove_ns"] = snapshot.wheel_remove_ns;
+    data["wheel_syn_insert_ns"] = snapshot.wheel_syn_insert_ns;
+    data["wheel_syn_remove_ns"] = snapshot.wheel_syn_remove_ns;
+    data["wheel_first_event_ns"] = snapshot.wheel_first_event_ns;
+    data["wheel_first_syn_event_ns"] = snapshot.wheel_first_syn_event_ns;
+    data["wheel_advance_queue_ns"] = snapshot.wheel_advance_queue_ns;
+    data["wheel_advance_syn_ns"] = snapshot.wheel_advance_syn_ns;
+    data["wheel_migrate_queue_ns"] = snapshot.wheel_migrate_queue_ns;
+    data["wheel_migrate_syn_ns"] = snapshot.wheel_migrate_syn_ns;
+    data["wheel_pop_ready_ns"] = snapshot.wheel_pop_ready_ns;
+    data["sync_ns"] = snapshot.sync_ns;
+    data["run_step_end_event_insert_ns"] = snapshot.run_step_end_event_insert_ns;
+    data["run_step_parallel_setup_ns"] = snapshot.run_step_parallel_setup_ns;
+    data["run_step_set_gpu_thread_ns"] = snapshot.run_step_set_gpu_thread_ns;
+    data["run_step_remove_event_ns"] = snapshot.run_step_remove_event_ns;
+    data["run_step_process_event_ns"] = snapshot.run_step_process_event_ns;
+    data["run_step_delete_event_ns"] = snapshot.run_step_delete_event_ns;
+    data["run_step_monitor_capture_ns"] = snapshot.run_step_monitor_capture_ns;
+    data["run_step_other_ns"] = snapshot.run_step_other_ns;
+    data["time_event_total_ns"] = snapshot.time_event_total_ns;
+    data["time_event_update_state_ns"] = snapshot.time_event_update_state_ns;
+    data["time_event_internal_spike_ns"] = snapshot.time_event_internal_spike_ns;
+    data["time_event_reschedule_ns"] = snapshot.time_event_reschedule_ns;
+    data["internal_spike_write_spike_ns"] = snapshot.internal_spike_write_spike_ns;
+    data["internal_spike_include_ns"] = snapshot.internal_spike_include_ns;
+    data["internal_spike_insert_ready_ns"] = snapshot.internal_spike_insert_ready_ns;
+    data["internal_spike_rotate_group_ns"] = snapshot.internal_spike_rotate_group_ns;
+    data["internal_spike_learning_ns"] = snapshot.internal_spike_learning_ns;
+    data["internal_spike_finalize_group_ns"] = snapshot.internal_spike_finalize_group_ns;
+    data["gpu_update_total_ns"] = snapshot.gpu_update_total_ns;
+    data["gpu_update_memcpy_h2d_ns"] = snapshot.gpu_update_memcpy_h2d_ns;
+    data["gpu_update_kernel_ns"] = snapshot.gpu_update_kernel_ns;
+    data["gpu_update_kernel_device_ns"] = snapshot.gpu_update_kernel_device_ns;
+    data["gpu_update_stream_device_ns"] = snapshot.gpu_update_stream_device_ns;
+    data["gpu_update_d2h_ns"] = snapshot.gpu_update_d2h_ns;
+    data["gpu_update_sync_ns"] = snapshot.gpu_update_sync_ns;
+    data["gpu_update_memset_ns"] = snapshot.gpu_update_memset_ns;
+    data["gpu_update_event_record_ns"] = snapshot.gpu_update_event_record_ns;
+    data["gpu_internal_spike_scan_ns"] = snapshot.gpu_internal_spike_scan_ns;
+    data["remove_count"] = snapshot.remove_count;
+    data["run_step_event_count"] = snapshot.run_step_event_count;
+    data["time_event_count"] = snapshot.time_event_count;
+    data["gpu_update_count"] = snapshot.gpu_update_count;
+    data["sync_count"] = snapshot.sync_count;
+    return data;
+}
 
 struct NativeSimulationConfig {
     int steps = 0;
@@ -124,6 +179,81 @@ public:
         simulation_->RunSimulationStep(steps);
     }
 
+    void enable_realtime(int slot_steps,
+                         double max_advance_seconds,
+                         float first_section,
+                         float second_section,
+                         float third_section) {
+        EnsureSimulation();
+        simulation_->EnableRealtime(
+            slot_steps,
+            max_advance_seconds,
+            first_section,
+            second_section,
+            third_section);
+    }
+
+    void disable_realtime() {
+        EnsureSimulation();
+        simulation_->DisableRealtime();
+    }
+
+    void run_realtime(int steps) {
+        if (steps <= 0) {
+            throw py::value_error("Simulation.run_realtime steps must be positive");
+        }
+        this->init();
+        py::gil_scoped_release release;
+        simulation_->RunSimulationRealtime(steps);
+    }
+
+    void reset_bench_profiling() {
+        bench_profile::reset();
+    }
+
+    py::dict bench_profiling_snapshot() const {
+        return BenchProfileSnapshotToDict(bench_profile::snapshot());
+    }
+
+    py::dict realtime_skip_counters() const {
+        EnsureSimulation();
+        const auto values = simulation_->GetRealtimeSkipCounters();
+        py::dict result;
+        result["input_spike"] = values[static_cast<std::size_t>(RealtimeSkipKind::InputSpike)];
+        result["propagated_spike"] = values[static_cast<std::size_t>(RealtimeSkipKind::PropagatedSpike)];
+        result["propagated_spike_group"] = values[static_cast<std::size_t>(RealtimeSkipKind::PropagatedSpikeGroup)];
+        result["trigger_relay_spike"] = values[static_cast<std::size_t>(RealtimeSkipKind::TriggerRelaySpike)];
+        result["time_driven_spike"] = values[static_cast<std::size_t>(RealtimeSkipKind::TimeDrivenSpike)];
+        result["learning_update"] = values[static_cast<std::size_t>(RealtimeSkipKind::LearningUpdate)];
+        result["synchronize_activity"] = values[static_cast<std::size_t>(RealtimeSkipKind::SynchronizeActivity)];
+        result["input_conv"] = values[static_cast<std::size_t>(RealtimeSkipKind::InputConv)];
+        result["outer_update"] = values[static_cast<std::size_t>(RealtimeSkipKind::OuterUpdate)];
+        result["unessential_event"] = values[static_cast<std::size_t>(RealtimeSkipKind::UnessentialEvent)];
+        return result;
+    }
+
+    void reset_realtime_skip_counters() {
+        EnsureSimulation();
+        simulation_->ResetRealtimeSkipCounters();
+    }
+
+    py::dict realtime_restriction_counts() const {
+        EnsureSimulation();
+        const auto values = simulation_->GetRealtimeRestrictionCounts();
+        py::dict result;
+        result["simulation_too_fast"] = values[0];
+        result["all_events_enabled"] = values[1];
+        result["learning_rules_disabled"] = values[2];
+        result["spikes_disabled"] = values[3];
+        result["all_unessential_events_disabled"] = values[4];
+        return result;
+    }
+
+    void reset_realtime_restriction_counts() {
+        EnsureSimulation();
+        simulation_->ResetRealtimeRestrictionCounts();
+    }
+
     void reset(bool preserve_weights) {
         EnsureSimulation();
         simulation_->ResetForNextRound(preserve_weights);
@@ -161,6 +291,17 @@ public:
             subscribe_port,
             publish_topic,
             subscribe_topic,
+            communication_interval);
+    }
+
+    void add_zmq_input_output_spike_driver(const std::string& server_address,
+                                           unsigned short server_port,
+                                           int communication_interval) {
+        EnsureSimulation();
+        simulation_->AddZMQInputOutputSpikeDriver(
+            CLIENT,
+            server_address,
+            server_port,
             communication_interval);
     }
 
@@ -1613,6 +1754,21 @@ PYBIND11_MODULE(_core, module) {
              py::arg("config"))
         .def("init", &NativeSimulation::init)
         .def("run", &NativeSimulation::run, py::arg("steps"))
+        .def("enable_realtime",
+             &NativeSimulation::enable_realtime,
+             py::arg("slot_steps"),
+             py::arg("max_advance_seconds"),
+             py::arg("first_section"),
+             py::arg("second_section"),
+             py::arg("third_section"))
+        .def("disable_realtime", &NativeSimulation::disable_realtime)
+        .def("run_realtime", &NativeSimulation::run_realtime, py::arg("steps"))
+        .def("reset_bench_profiling", &NativeSimulation::reset_bench_profiling)
+        .def("bench_profiling_snapshot", &NativeSimulation::bench_profiling_snapshot)
+        .def("realtime_skip_counters", &NativeSimulation::realtime_skip_counters)
+        .def("reset_realtime_skip_counters", &NativeSimulation::reset_realtime_skip_counters)
+        .def("realtime_restriction_counts", &NativeSimulation::realtime_restriction_counts)
+        .def("reset_realtime_restriction_counts", &NativeSimulation::reset_realtime_restriction_counts)
         .def("reset", &NativeSimulation::reset, py::arg("preserve_weights") = true)
         .def("add_external_spikes",
              &NativeSimulation::add_external_spikes,
@@ -1630,6 +1786,11 @@ PYBIND11_MODULE(_core, module) {
              py::arg("subscribe_port"),
              py::arg("publish_topic"),
              py::arg("subscribe_topic"),
+             py::arg("communication_interval"))
+        .def("add_zmq_input_output_spike_driver",
+             &NativeSimulation::add_zmq_input_output_spike_driver,
+             py::arg("server_address"),
+             py::arg("server_port"),
              py::arg("communication_interval"))
         .def("add_input_conv_frames",
              &NativeSimulation::add_input_conv_frames,

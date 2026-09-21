@@ -131,6 +131,67 @@ class Simulation:
         self._native.run(self.config.steps if steps is None else int(steps))
         return self
 
+    def enable_realtime(
+        self,
+        *,
+        slot_steps: int = 0,
+        max_advance_seconds: float = 0.0,
+        first_section: float = 0.25,
+        second_section: float = 0.5,
+        third_section: float = 0.75,
+    ) -> "Simulation":
+        """Enable native real-time pacing for subsequent ``run_realtime`` calls.
+
+        ``slot_steps=0`` lets the native runtime use the configured communication
+        interval.  The section values control how aggressively non-essential
+        events are restricted when simulation time approaches wall time.
+        """
+        self._native.enable_realtime(
+            int(slot_steps),
+            float(max_advance_seconds),
+            float(first_section),
+            float(second_section),
+            float(third_section),
+        )
+        return self
+
+    def disable_realtime(self) -> "Simulation":
+        """Disable native real-time pacing."""
+        self._native.disable_realtime()
+        return self
+
+    def run_realtime(self, steps: int | None = None) -> "Simulation":
+        """Run using the native watchdog and wall-clock pacing."""
+        self._native.run_realtime(self.config.steps if steps is None else int(steps))
+        return self
+
+    def reset_bench_profiling(self) -> "Simulation":
+        """Reset native event/propagation/learning profiling counters."""
+        self._native.reset_bench_profiling()
+        return self
+
+    def bench_profiling_snapshot(self) -> dict:
+        """Return native timing counters collected since the last reset."""
+        return dict(self._native.bench_profiling_snapshot())
+
+    def realtime_skip_counters(self) -> dict:
+        """Return exact counts of event work skipped by realtime restrictions."""
+        return dict(self._native.realtime_skip_counters())
+
+    def reset_realtime_skip_counters(self) -> "Simulation":
+        """Reset exact realtime restriction skip counters."""
+        self._native.reset_realtime_skip_counters()
+        return self
+
+    def realtime_restriction_counts(self) -> dict:
+        """Return watchdog samples spent at each realtime restriction level."""
+        return dict(self._native.realtime_restriction_counts())
+
+    def reset_realtime_restriction_counts(self) -> "Simulation":
+        """Reset realtime watchdog restriction-level counters."""
+        self._native.reset_realtime_restriction_counts()
+        return self
+
     def reset(self, *, preserve_weights: bool = True) -> "Simulation":
         self._native.reset(preserve_weights)
         return self
@@ -159,6 +220,25 @@ class Simulation:
             int(subscribe_port),
             publish_topic,
             subscribe_topic,
+            int(communication_interval),
+        )
+        return self
+
+    def add_zmq_input_output_spike_driver(
+        self,
+        *,
+        server_address: str = "127.0.0.1",
+        server_port: int = 5565,
+        communication_interval: int = 10,
+    ) -> "Simulation":
+        """Add the blocking REQ/REP spike driver.
+
+        The native simulation sends one request at each communication event
+        and blocks until the external REP server returns its input spikes.
+        """
+        self._native.add_zmq_input_output_spike_driver(
+            server_address,
+            int(server_port),
             int(communication_interval),
         )
         return self

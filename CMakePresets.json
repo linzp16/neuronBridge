@@ -19,6 +19,30 @@
         "NR_BUILD_EXAMPLES": "ON",
         "NR_DEPENDENCY_MODE": "AUTO"
       }
+    },
+    {
+      "name": "linux-gcc-cuda-release",
+      "displayName": "Linux GCC CUDA full feature",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-gcc-cuda-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NR_ENABLE_PYTHON": "ON",
+        "NR_ENABLE_CUDA": "ON",
+        "NR_ENABLE_MODEL_CODEGEN": "ON",
+        "NR_BUILD_TESTS": "ON",
+        "NR_BUILD_EXAMPLES": "ON",
+        "NR_DEPENDENCY_MODE": "BUNDLED",
+        "NR_DEPENDENCY_PLATFORM_KEY": "linux-x86_64-gcc-cuda12",
+        "NR_DEPENDENCY_ROOT": "$env{NR_DEPENDENCY_ROOT}",
+        "NR_CUDA_RUNTIME_LINKAGE": "STATIC",
+        "NR_CUDA_ARCHITECTURES": "52;61;75;80;86;89"
+      }
     }
   ],
   "buildPresets": [
@@ -31,6 +55,19 @@
       "name": "windows-msvc-cuda-release",
       "configurePreset": "windows-msvc-cuda",
       "configuration": "Release"
+    },
+    {
+      "name": "linux-gcc-cuda-release",
+      "configurePreset": "linux-gcc-cuda-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-gcc-cuda-release",
+      "configurePreset": "linux-gcc-cuda-release",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

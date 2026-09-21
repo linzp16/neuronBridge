@@ -80,6 +80,8 @@ void TimeDrivenInternalSpike::ProcessInternalSpikeEvent(Simulation* simulation, 
         }
         bench_profile::internal_spike_learning_ns.fetch_add(
             bench_profile::now_ns() - phase_start_ns, std::memory_order_relaxed);
+    } else {
+        simulation->CountRealtimeSkipped(RealtimeSkipKind::LearningUpdate);
     }
 }
 void TimeDrivenInternalSpike::ProcessEvent(Simulation* simulation) {
@@ -87,6 +89,7 @@ void TimeDrivenInternalSpike::ProcessEvent(Simulation* simulation) {
 }
 void TimeDrivenInternalSpike::ProcessEvent(Simulation* simulation, RealTimeRestrictionLevel level) {
     if (level >= SPIKES_DISABLED) {
+        simulation->CountRealtimeSkipped(RealtimeSkipKind::TimeDrivenSpike);
         return;
     }
     if (this->neuron_state_vector->IsGPU == false) {

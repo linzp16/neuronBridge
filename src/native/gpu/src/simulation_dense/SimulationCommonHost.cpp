@@ -140,6 +140,7 @@ void AppendOuterDynamicInterfaceNetwork(
     endpoint_layer.isOutput = false;
     endpoint_layer.NeuronParameter["outer_dynamic_ids_by_neuron"] = endpoint_outer_ids;
     endpoint_layer.NeuronParameter["outer_dynamic_joint_ids_by_neuron"] = endpoint_joint_ids;
+    endpoint_layer.NeuronParameter["outer_dynamic_endpoint_global_start"] = endpoint_start;
     main_layers->push_back(endpoint_layer);
 
     for (std::list<OuterDynamicConnectionDescription>::const_iterator desc_it =
@@ -1238,6 +1239,14 @@ void ConstructDenseAwareSimulation(Simulation* simulation,
     simulation->output_spike_driver = new ArrayOutputSpikeDriver();
     simulation->RealTimeRestrictionObject = new RealTimeRestriction();
     simulation->DelayMin = simulation->network->GetMinInterpropagationTime();
+    // Dense interface routes are not part of the legacy Network connection
+    // list used by GetMinInterpropagationTime(). If the main network has no
+    // cross-queue edge, still enable the synchronization cycle so buffered
+    // Dense cross-queue inputs/outputs are committed before the next update.
+    if (!simulation->dense_subnetworks.empty() &&
+        simulation->NumberOfQueue > 1 && simulation->DelayMin < 0) {
+        simulation->DelayMin = 1;
+    }
 }
 
 }  // namespace sim_support

@@ -3,7 +3,11 @@
 #include <iostream>
 #include "../source_file_realtime_v1_async/Simulation/inc/RealTimeRestriction.h"
 class Simulation;
-enum EventPriority {ENDSIMULATION, COMMUNICATION, SYNCHRONIZEACTIVITYEVENT, SYNCHRONIZESIMULATIONEVENT, SAVEWEIGHTEVENT, INTERNALSPIKE, TIMEEVENT, OUTERUPDATEEVENT, INPUTCONVEVENT, PROPOGATEDSPIKE, PROPOGATEDCURRENT};
+// Event queues execute larger priorities first. Dense updates must run after
+// SYNCHRONIZESIMULATIONEVENT has established the cross-queue barrier and
+// flushed pending interface events, but before ordinary low-priority state
+// bookkeeping. Keep this priority below SYNCHRONIZESIMULATIONEVENT.
+enum EventPriority {ENDSIMULATION, COMMUNICATION, SYNCHRONIZEACTIVITYEVENT, DENSEUPDATEEVENT, SYNCHRONIZESIMULATIONEVENT, SAVEWEIGHTEVENT, INTERNALSPIKE, TIMEEVENT, OUTERUPDATEEVENT, INPUTCONVEVENT, PROPOGATEDSPIKE, PROPOGATEDCURRENT};
 class Event {
 public:
     Event();

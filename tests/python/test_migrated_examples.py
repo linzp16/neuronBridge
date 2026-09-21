@@ -1331,7 +1331,10 @@ def test_baseline_dense_mixed_current():
     assert snapshot["gpu_backend_ready"]
     assert snapshot["carlsim_like_gpu_active"]
     assert any(value > 0.0 for value in snapshot["gexc"])
-    assert output_spikes == [{"time": 4, "neuron_id": 2}, {"time": 4, "neuron_id": 3}]
+    # Dense interface spikes are committed on the next Dense update after the
+    # producing simulation step has completed.  This preserves deterministic
+    # behavior when the producer and Dense subnetwork use different queues.
+    assert output_spikes == [{"time": 5, "neuron_id": 2}, {"time": 5, "neuron_id": 3}]
     assert sim.output_spikes() == []
 
 

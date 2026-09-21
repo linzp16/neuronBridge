@@ -55,19 +55,31 @@ target_include_directories(neuronbridge_native_settings INTERFACE
     "${NR_GPU_ROOT}/include"
     "${NR_LEGACY_SRC_ROOT}/MotionEnergy/inc"
     "${NR_ZEROMQ_INCLUDE_DIR}")
+if(NR_ENABLE_CUDA)
+  # Some legacy host-side .cpp files call the CUDA runtime directly. CUDA
+  # language targets receive this include path automatically, C++ targets do not.
+  target_include_directories(neuronbridge_native_settings INTERFACE
+      "${CUDAToolkit_INCLUDE_DIRS}")
+endif()
 if(NR_ENABLE_MODEL_CODEGEN)
   target_include_directories(neuronbridge_native_settings INTERFACE
       "${NR_CODEGEN_INCLUDE_ROOT}")
 endif()
 target_compile_definitions(neuronbridge_native_settings INTERFACE
-    _CRT_SECURE_NO_WARNINGS
-    NOMINMAX
-    WIN32=1
-    _WIN32_WINNT=0x0A00
-    WIN32_LEAN_AND_MEAN
     SNN_WITH_ZMQ=1
     SNN_WITH_PINOCCHIO=1
     NPGR_ENABLE_CUDA=$<BOOL:${NR_ENABLE_CUDA}>)
+if(WIN32)
+  target_compile_definitions(neuronbridge_native_settings INTERFACE
+      _CRT_SECURE_NO_WARNINGS
+      NOMINMAX
+      WIN32=1
+      _WIN32_WINNT=0x0A00
+      WIN32_LEAN_AND_MEAN)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(neuronbridge_native_settings INTERFACE
+      NR_PLATFORM_LINUX=1)
+endif()
 if(NR_ENABLE_MODEL_CODEGEN)
   target_compile_definitions(neuronbridge_native_settings INTERFACE
       NR_ENABLE_MODEL_CODEGEN=1)
@@ -82,6 +94,11 @@ if(MSVC)
       $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/openmp>
       $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/EHsc>
       $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(neuronbridge_native_settings INTERFACE
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall>
+      $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fopenmp>)
 endif()
 
 add_library(neuronbridge_core_cpp STATIC ${NR_CORE_CPP_SOURCES})
@@ -93,6 +110,14 @@ target_link_libraries(neuronbridge_core_cpp
     PUBLIC neuronbridge_native_settings)
 
 if(NR_ENABLE_CUDA)
+  if(NR_CUDA_RUNTIME_LINKAGE STREQUAL "STATIC" OR
+     (NR_CUDA_RUNTIME_LINKAGE STREQUAL "AUTO" AND
+      CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+    set(NR_CUDART_TARGET CUDA::cudart_static)
+  else()
+    set(NR_CUDART_TARGET CUDA::cudart)
+  endif()
+
   set(NR_CORE_CUDA_SOURCES
       "${NR_LEGACY_SRC_ROOT}/Openmp/src/OpenmpGPU.cu"
       "${NR_LEGACY_SRC_ROOT}/Network/src/Network.cu"
@@ -117,12 +142,16 @@ if(NR_ENABLE_CUDA)
   endif()
   target_link_libraries(neuronbridge_core_cuda PUBLIC
       neuronbridge_native_settings
-      CUDA::cudart
+      ${NR_CUDART_TARGET}
       CUDA::cuda_driver)
   set_target_properties(neuronbridge_core_cuda PROPERTIES
       CUDA_SEPARABLE_COMPILATION OFF
       CUDA_RESOLVE_DEVICE_SYMBOLS OFF
       CUDA_PROPAGATE_HOST_FLAGS OFF)
+  if(NR_CUDA_ARCHITECTURES)
+    set_property(TARGET neuronbridge_core_cuda PROPERTY
+        CUDA_ARCHITECTURES "${NR_CUDA_ARCHITECTURES}")
+  endif()
 
   set(NR_DENSE_RUNTIME_SOURCES
       "${NR_GPU_ROOT}/src/bridge/LegacyNetworkBridge.cpp"
@@ -169,12 +198,16 @@ if(NR_ENABLE_CUDA)
       neuronbridge_native_settings
       neuronbridge_core_cpp
       neuronbridge_core_cuda
-      CUDA::cudart
+      ${NR_CUDART_TARGET}
       CUDA::cuda_driver)
   set_target_properties(neuronbridge_dense_runtime PROPERTIES
       CUDA_SEPARABLE_COMPILATION OFF
       CUDA_RESOLVE_DEVICE_SYMBOLS OFF
       CUDA_PROPAGATE_HOST_FLAGS OFF)
+  if(NR_CUDA_ARCHITECTURES)
+    set_property(TARGET neuronbridge_dense_runtime PROPERTY
+        CUDA_ARCHITECTURES "${NR_CUDA_ARCHITECTURES}")
+  endif()
 endif()
 
 add_library(neuronbridge_core INTERFACE)
@@ -193,10 +226,19 @@ target_link_libraries(neuronbridge_runtime_support PUBLIC
 
 add_library(neuronbridge_runtime INTERFACE)
 add_library(NeuronBridge::Runtime ALIAS neuronbridge_runtime)
-target_link_libraries(neuronbridge_runtime INTERFACE
-    neuronbridge_runtime_support
-    neuronbridge_core)
-if(NR_ENABLE_CUDA)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NR_ENABLE_CUDA)
+  # The legacy host core and the dense CUDA runtime reference each other.
+  # ELF static archives are scanned from left to right, so a plain library
+  # list can leave symbols unresolved depending on which archive is seen
+  # first. RESCAN emits a linker group and resolves the complete cycle.
   target_link_libraries(neuronbridge_runtime INTERFACE
-      neuronbridge_dense_runtime)
+      "$<LINK_GROUP:RESCAN,neuronbridge_runtime_support,neuronbridge_core_cpp,neuronbridge_core_cuda,neuronbridge_dense_runtime>")
+else()
+  target_link_libraries(neuronbridge_runtime INTERFACE
+      neuronbridge_runtime_support
+      neuronbridge_core)
+  if(NR_ENABLE_CUDA)
+    target_link_libraries(neuronbridge_runtime INTERFACE
+        neuronbridge_dense_runtime)
+  endif()
 endif()

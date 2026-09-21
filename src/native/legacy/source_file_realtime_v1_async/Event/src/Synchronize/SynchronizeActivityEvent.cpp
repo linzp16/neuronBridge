@@ -31,6 +31,7 @@ void SynchronizeActivityEvent::ProcessEvent(Simulation* simulation, RealTimeRest
             simulation->EventHeap->Insert_Buffer_to_Event_Queue(i);
         }
         else {
+            simulation->CountRealtimeSkipped(RealtimeSkipKind::SynchronizeActivity);
             simulation->EventHeap->Reset_Buffer(i);
         }
     }

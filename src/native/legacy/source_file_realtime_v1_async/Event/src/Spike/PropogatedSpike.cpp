@@ -15,6 +15,7 @@ void PropogatedSpike::ProcessEvent(Simulation* simulation) {
 }
 void PropogatedSpike::ProcessEvent(Simulation* simulation, RealTimeRestrictionLevel level) {
     if (level >= SPIKES_DISABLED) {
+		simulation->CountRealtimeSkipped(RealtimeSkipKind::PropagatedSpike);
         return;
     }
     InternalSpike* Generate;
@@ -37,6 +38,8 @@ void PropogatedSpike::ProcessEvent(Simulation* simulation, RealTimeRestrictionLe
             if (lr != 0) {
                 lr->ApplyPreSynaticSpike(inter, this->getTime(), simulation);
             }
+        } else {
+            simulation->CountRealtimeSkipped(RealtimeSkipKind::LearningUpdate);
         }
         inter++;
     }

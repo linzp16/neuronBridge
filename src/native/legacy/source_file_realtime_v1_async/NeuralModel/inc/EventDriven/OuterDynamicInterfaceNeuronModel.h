@@ -49,6 +49,7 @@ private:
     Simulation* simulation_;
     std::vector<int> outer_dynamic_id_by_neuron_;
     std::vector<int> joint_id_by_neuron_;
+    int endpoint_global_start_;
 };
 
 #endif

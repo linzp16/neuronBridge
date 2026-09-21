@@ -278,6 +278,11 @@ private:
     mutable std::vector<float> debug_synaptic_weights_;
     // Pending channel selected for each external interface slot.
     std::vector<std::uint8_t> interface_pending_channels_;
+    // Boundary spikes are staged by delivery time.  They are committed only
+    // when their timestamp is strictly older than the Dense update step; this
+    // prevents a queue-local Dense update from racing a same-time cross-queue
+    // propagated-spike event.
+    std::vector<DenseInterfaceSpikeInput> pending_interface_spikes_;
     // Model-defined scale selected for each external interface slot.
     std::vector<float> interface_scales_;
     // Interface-slot lookup used when uploading boundary input into the GPU main path.

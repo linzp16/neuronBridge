@@ -1,7 +1,10 @@
 # Bundled dependencies
 
 NeuronBridge will support `AUTO`, `BUNDLED`, and `SYSTEM` dependency modes.
-The initial supported bundle target is `windows-x64-msvc`.
+The validated bundle target is currently `windows-x64-msvc`. The Linux port
+adds the reserved platform key `linux-x86_64-gcc-cuda12`; its archive must not
+be added to `manifest.json` until the payload, license inventory, and SHA256
+have been produced and verified on the Linux CUDA build host.
 
 During the dependency migration stage, the validated Pinocchio and ZeroMQ
 prefixes from the historical workspace will be audited, minimized, packaged,
@@ -11,6 +14,7 @@ The versioned archive belongs under:
 
 ```text
 dependencies/bundles/windows-x64-msvc/
+dependencies/bundles/linux-x86_64-gcc-cuda12/
 ```
 
 The archive is tracked through Git LFS. Its expanded contents belong under
@@ -42,3 +46,26 @@ git lfs pull --include="dependencies/bundles/**"
 Bootstrap verifies the archive hash, extracts into a temporary directory,
 checks required files, and atomically installs the bundle under
 `dependencies/vendor/windows-x64-msvc/r1`.
+
+## Linux CUDA bundle contract
+
+The Linux bundle must install under:
+
+```text
+dependencies/vendor/linux-x86_64-gcc-cuda12/r1/
+  pinocchio/
+    include/
+    lib/
+    share/
+  zeromq/
+    include/zmq.h
+    include/zmq.hpp
+    lib/
+```
+
+It must use one GCC/libstdc++ ABI for Pinocchio, Boost, coal/hpp-fcl,
+urdfdom, sdformat/gz, ZeroMQ, and cppzmq. CUDA driver libraries such as
+`libcuda.so.1` are host-owned and must never be included in the archive or
+wheel. The Linux wheel build may temporarily use `NR_DEPENDENCY_MODE=SYSTEM`
+for bring-up, but release artifacts must use the hashed bundle recorded in
+`manifest.json`.
