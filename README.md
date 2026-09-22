@@ -3,11 +3,8 @@
 NeuronBridge is a Windows-first C++/CUDA neural simulation runtime with a
 Python 3.12 interface.
 
-This repository is being migrated from the historical `network_release`
-workspace. The Windows dependency bundle and the behavior-preserving native
-C++/CUDA runtime migration are complete. Maintainer-owned model code generation
-is integrated and validated for Legacy CPU, Legacy CUDA, and Dense CUDA. The
-Python 3.12 API, pybind11 bindings, user-facing examples, repaired wheel,
+The Windows dependency bundle and the behavior-preserving native
+C++/CUDA runtime migration are complete. The Python 3.12 API, pybind11 bindings, user-facing examples, repaired wheel,
 portable offline packaging, and Windows GitHub CI workflows are integrated.
 
 ## Supported platform
