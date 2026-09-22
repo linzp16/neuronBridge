@@ -1,4 +1,5 @@
 #include "simulation_dense/SimulationCommonHost.h"
+#include "streaming_build/NbnetReader.h"
 
 #include "simulation_dense/DenseBuildShared.h"
 #include "simulation_dense/DenseInterfaceSpikeNeuronModel.h"
@@ -34,6 +35,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -711,6 +713,12 @@ bool SetConnectionWeight(Simulation* simulation,
         }
         return false;
     }
+    if (!std::isfinite(weight)) {
+        if (reason != nullptr) {
+            *reason = "connection weight must be finite";
+        }
+        return false;
+    }
     if (original_connection_index < 0 ||
         original_connection_index >= static_cast<int>(simulation->original_connection_weight_refs.size())) {
         if (reason != nullptr) {
@@ -962,11 +970,11 @@ void ScheduleInitialEvents(Simulation* simulation) {
     }
 }
 
-void ResetForNextRound(Simulation* simulation, bool preserve_weights) {
+void ResetForNextRound(Simulation* simulation) {
     if (simulation == nullptr || simulation->network == nullptr) {
         return;
     }
-    simulation->network->ResetDynamicState(preserve_weights);
+    simulation->network->ResetDynamicState();
     ResetDenseSubnetworks(simulation);
     simulation->ResetInputConvModels();
     for (std::size_t index = 0; index < simulation->InputConvFrameSourceList.size(); ++index) {
@@ -999,14 +1007,102 @@ void ResetForNextRound(Simulation* simulation, bool preserve_weights) {
     ScheduleInitialEvents(simulation);
 }
 
-void ConstructDenseAwareSimulation(Simulation* simulation,
-                                   const std::list<NeuronLayerDescription>& neuron_layer_list,
-                                   const std::list<ConnectionDescription>& connection_list,
-                                   const std::list<LearningRuleDescription>& learning_rule_list,
-                                   const std::list<OuterDynamicDescription>& outer_dynamic_list,
-                                   const std::list<OuterDynamicConnectionDescription>& outer_dynamic_connection_list,
-                                   const std::list<InputConvDescription>& input_conv_list,
-                                   int requested_queue_count) {
+void ConstructStreamingMainSimulation(Simulation* simulation,
+                                      const streaming::NbnetReader& reader,
+                                      int requested_queue_count) {
+    if (simulation == nullptr) return;
+    setNumberOfOpenMPQueues(requested_queue_count);
+    simulation->NumberOfQueue = NumberOfOpenMPQueues;
+    simulation->currenttime = new int[simulation->NumberOfQueue]();
+    simulation->SimulationEnd = new bool[simulation->NumberOfQueue]();
+    simulation->PauseThread = new bool[simulation->NumberOfQueue]();
+    simulation->SyncThread = new bool[simulation->NumberOfQueue]();
+    RecreateEventQueue(simulation);
+    simulation->outer_dynamic_spike_buffer = new OuterDynamicSpikeBuffer();
+
+    const streaming::NbnetMetadata& metadata = reader.metadata();
+    simulation->original_to_main_neuron_id.resize(static_cast<std::size_t>(metadata.neuron_count));
+    for (std::size_t index = 0; index < simulation->original_to_main_neuron_id.size(); ++index) {
+        simulation->original_to_main_neuron_id[index] = static_cast<int>(index);
+    }
+    simulation->original_connection_weight_refs.resize(static_cast<std::size_t>(reader.connection_count()));
+    for (std::size_t index = 0; index < simulation->original_connection_weight_refs.size(); ++index) {
+        RuntimeConnectionWeightRef& ref = simulation->original_connection_weight_refs[index];
+        ref.owner = RuntimeConnectionWeightOwner::MainNetwork;
+        ref.runtime_weight_index = static_cast<int>(index);
+    }
+    simulation->network = new Network(metadata.layers,
+                                      reader,
+                                      metadata.learning_rules,
+                                      simulation->NumberOfQueue,
+                                      simulation->basetimesteps,
+                                      simulation);
+    simulation->neuronMonitorExist = simulation->network->isMonitor;
+    simulation->inputSpikeDriver = new ArrayInputSpikeDriver();
+    simulation->inputCurrentDriver = new ArrayInputCurrentDriver();
+    simulation->output_spike_driver = new ArrayOutputSpikeDriver();
+    simulation->RealTimeRestrictionObject = new RealTimeRestriction();
+    simulation->DelayMin = simulation->network->GetMinInterpropagationTime();
+}
+
+namespace {
+
+class StreamingMainConnectionSource : public streaming::ConnectionRecordSource {
+public:
+    StreamingMainConnectionSource(const streaming::NbnetReader& reader,
+                                  const std::vector<int>& original_to_main,
+                                  const std::list<ConnectionDescription>& auxiliary)
+        : reader_(reader), original_to_main_(original_to_main), auxiliary_(auxiliary) {}
+
+    void ForEachConnectionBatch(const BatchCallback& callback) const override {
+        reader_.ForEachConnectionBatch([&](const std::vector<streaming::ConnectionRecordV1>& records) {
+            std::vector<streaming::ConnectionRecordV1> main_records;
+            main_records.reserve(records.size());
+            for (const auto& record : records) {
+                const int source = original_to_main_[record.source];
+                const int target = original_to_main_[record.target];
+                if (source < 0 || target < 0) continue;
+                streaming::ConnectionRecordV1 mapped = record;
+                mapped.source = static_cast<std::uint32_t>(source);
+                mapped.target = static_cast<std::uint32_t>(target);
+                main_records.push_back(mapped);
+            }
+            if (!main_records.empty()) callback(main_records);
+        });
+        for (const ConnectionDescription& block : auxiliary_) {
+            std::vector<streaming::ConnectionRecordV1> records;
+            records.reserve(block.SourceNeuron.size());
+            for (std::size_t index = 0; index < block.SourceNeuron.size(); ++index) {
+                streaming::ConnectionRecordV1 record;
+                record.source = static_cast<std::uint32_t>(block.SourceNeuron[index]);
+                record.target = static_cast<std::uint32_t>(block.TargetNeuron[index]);
+                record.synapse_type = block.Type[index];
+                record.weight = block.Weight[index];
+                record.max_weight = block.MaxWeight[index];
+                record.delay = static_cast<std::uint32_t>(block.Delay[index]);
+                record.synapse_rule = block.SynapseRule[index];
+                record.trigger_rule = block.TriggerRule[index];
+                records.push_back(record);
+            }
+            if (!records.empty()) callback(records);
+        }
+    }
+
+private:
+    const streaming::NbnetReader& reader_;
+    const std::vector<int>& original_to_main_;
+    const std::list<ConnectionDescription>& auxiliary_;
+};
+
+void ConstructDenseAwareSimulationImpl(Simulation* simulation,
+                                       const std::list<NeuronLayerDescription>& neuron_layer_list,
+                                       const std::list<ConnectionDescription>& connection_list,
+                                       const std::list<LearningRuleDescription>& learning_rule_list,
+                                       const std::list<OuterDynamicDescription>& outer_dynamic_list,
+                                       const std::list<OuterDynamicConnectionDescription>& outer_dynamic_connection_list,
+                                       const std::list<InputConvDescription>& input_conv_list,
+                                       int requested_queue_count,
+                                       const streaming::NbnetReader* streaming_reader) {
     if (simulation == nullptr) {
         return;
     }
@@ -1028,21 +1124,30 @@ void ConstructDenseAwareSimulation(Simulation* simulation,
         // Split the original build description before constructing any Network.
         // Dense-tagged layers are removed from the main Network and represented
         // by DenseSubnetworkBuildSpec records instead.
-        PreparedSimulationBuild prepared_build =
-            sim_support::PrepareBlackBoxDenseBuild(
-                neuron_layer_list,
-                connection_list,
-                learning_rule_list,
-                simulation->basetimesteps);
+        PreparedSimulationBuild prepared_build = streaming_reader != nullptr
+            ? sim_support::PrepareBlackBoxDenseBuildStreaming(
+                  neuron_layer_list,
+                  *streaming_reader,
+                  learning_rule_list,
+                  simulation->basetimesteps)
+            : sim_support::PrepareBlackBoxDenseBuild(
+                  neuron_layer_list,
+                  connection_list,
+                  learning_rule_list,
+                  simulation->basetimesteps);
         if (!prepared_build.build_error.empty()) {
             throw std::runtime_error(prepared_build.build_error);
         }
         simulation->original_connection_weight_refs =
             prepared_build.original_connection_weight_refs;
         std::list<NeuronLayerDescription> main_layers_with_input_conv =
-            prepared_build.dense_specs.empty() ? neuron_layer_list : prepared_build.main_layers;
+            streaming_reader != nullptr
+                ? prepared_build.main_layers
+                : (prepared_build.dense_specs.empty() ? neuron_layer_list : prepared_build.main_layers);
         std::list<ConnectionDescription> main_connections_with_input_conv =
-            prepared_build.dense_specs.empty() ? connection_list : prepared_build.main_connections;
+            streaming_reader != nullptr
+                ? prepared_build.main_connections
+                : (prepared_build.dense_specs.empty() ? connection_list : prepared_build.main_connections);
         AddInputConvMainCurrentRoutes(input_conv_list,
                                       prepared_build.original_to_main_neuron_id,
                                       &main_layers_with_input_conv,
@@ -1053,20 +1158,20 @@ void ConstructDenseAwareSimulation(Simulation* simulation,
                                            prepared_build.original_to_main_neuron_id,
                                            &main_layers_with_input_conv,
                                            &main_connections_with_input_conv);
-        // if the network does not use the dense subnetwork, just build the main network directly
-        if (prepared_build.dense_specs.empty()) {
-            simulation->original_to_main_neuron_id = prepared_build.original_to_main_neuron_id;
+        simulation->original_to_main_neuron_id = prepared_build.original_to_main_neuron_id;
+        if (streaming_reader != nullptr) {
+            StreamingMainConnectionSource main_source(
+                *streaming_reader,
+                prepared_build.original_to_main_neuron_id,
+                main_connections_with_input_conv);
             simulation->network = new Network(
                 main_layers_with_input_conv,
-                main_connections_with_input_conv,
+                main_source,
                 learning_rule_list,
                 simulation->NumberOfQueue,
                 simulation->basetimesteps,
                 simulation);
         } else {
-            simulation->original_to_main_neuron_id = prepared_build.original_to_main_neuron_id;
-            // The main legacy Network contains only non-dense layers plus
-            // synthetic interface neurons for main->dense boundary delivery.
             simulation->network = new Network(
                 main_layers_with_input_conv,
                 main_connections_with_input_conv,
@@ -1247,6 +1352,42 @@ void ConstructDenseAwareSimulation(Simulation* simulation,
         simulation->NumberOfQueue > 1 && simulation->DelayMin < 0) {
         simulation->DelayMin = 1;
     }
+}
+
+}  // namespace
+
+void ConstructDenseAwareSimulation(Simulation* simulation,
+                                   const std::list<NeuronLayerDescription>& neuron_layer_list,
+                                   const std::list<ConnectionDescription>& connection_list,
+                                   const std::list<LearningRuleDescription>& learning_rule_list,
+                                   const std::list<OuterDynamicDescription>& outer_dynamic_list,
+                                   const std::list<OuterDynamicConnectionDescription>& outer_dynamic_connection_list,
+                                   const std::list<InputConvDescription>& input_conv_list,
+                                   int requested_queue_count) {
+    ConstructDenseAwareSimulationImpl(simulation,
+                                      neuron_layer_list,
+                                      connection_list,
+                                      learning_rule_list,
+                                      outer_dynamic_list,
+                                      outer_dynamic_connection_list,
+                                      input_conv_list,
+                                      requested_queue_count,
+                                      nullptr);
+}
+
+void ConstructStreamingSimulation(Simulation* simulation,
+                                  const streaming::NbnetReader& reader,
+                                  int requested_queue_count) {
+    const streaming::NbnetMetadata& metadata = reader.metadata();
+    ConstructDenseAwareSimulationImpl(simulation,
+                                      metadata.layers,
+                                      std::list<ConnectionDescription>(),
+                                      metadata.learning_rules,
+                                      metadata.outer_dynamics,
+                                      metadata.outer_dynamic_connections,
+                                      metadata.input_convs,
+                                      requested_queue_count,
+                                      &reader);
 }
 
 }  // namespace sim_support

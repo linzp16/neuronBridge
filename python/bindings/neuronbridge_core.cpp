@@ -3,6 +3,7 @@
 
 #include <array>
 #include <boost/any.hpp>
+#include <chrono>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -28,6 +29,7 @@
 #include "source_file_realtime_v1_async/communication/inc/DriverType.h"
 #include "source_file_realtime_v1_async/mainprogram/inc/BenchProfiling.h"
 #include "neuron_model/NeuronModelCatalog.h"
+#include "streaming_build/NbnetReader.h"
 
 namespace py = pybind11;
 
@@ -160,7 +162,62 @@ public:
               config.queues,
               ParseEventQueueType(config.event_queue),
               config.timing_wheel_size)),
-          initialized_(false) {}
+          initialized_(false) {
+        build_stats_.mode = "in_memory";
+        build_stats_.neuron_count = static_cast<std::uint64_t>(network.neuron_count());
+        for (const ConnectionDescription& block : network.connections) {
+            build_stats_.connection_count += block.SourceNeuron.size();
+        }
+    }
+
+    NativeSimulation(const std::string& path,
+                     const NativeSimulationConfig& config,
+                     const npgr::streaming::StreamingBuildOptions& options)
+        : initialized_(false) {
+        const auto started = std::chrono::steady_clock::now();
+        npgr::streaming::NbnetReader reader(path, options);
+        const double reader_seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - started).count();
+        const npgr::streaming::NbnetMetadata& metadata = reader.metadata();
+        simulation_.reset(new Simulation(
+            reader,
+            config.steps,
+            config.timestep,
+            config.queues,
+            ParseEventQueueType(config.event_queue),
+            config.timing_wheel_size));
+        build_stats_.path = path;
+        build_stats_.file_bytes = reader.file_size();
+        build_stats_.metadata_bytes = reader.metadata_size();
+        build_stats_.neuron_count = metadata.neuron_count;
+        build_stats_.connection_count = reader.connection_count();
+        build_stats_.batch_records = reader.batch_records();
+        build_stats_.memory_budget_bytes = options.memory_budget_bytes;
+        build_stats_.used_mmap = reader.used_mmap();
+        build_stats_.checksum_verified = reader.checksum_verified();
+        build_stats_.parse_seconds = reader_seconds;
+        build_stats_.runtime_build_path = "streaming_direct";
+        build_stats_.total_build_seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - started).count();
+    }
+
+    py::dict build_stats() const {
+        py::dict result;
+        result["mode"] = build_stats_.mode;
+        result["path"] = build_stats_.path;
+        result["file_bytes"] = build_stats_.file_bytes;
+        result["metadata_bytes"] = build_stats_.metadata_bytes;
+        result["neuron_count"] = build_stats_.neuron_count;
+        result["connection_count"] = build_stats_.connection_count;
+        result["batch_records"] = build_stats_.batch_records;
+        result["memory_budget_bytes"] = build_stats_.memory_budget_bytes;
+        result["mmap"] = build_stats_.used_mmap;
+        result["checksum_verified"] = build_stats_.checksum_verified;
+        result["description_load_seconds"] = build_stats_.parse_seconds;
+        result["total_build_seconds"] = build_stats_.total_build_seconds;
+        result["runtime_build_path"] = build_stats_.runtime_build_path;
+        return result;
+    }
 
     void init() {
         EnsureSimulation();
@@ -254,9 +311,9 @@ public:
         simulation_->ResetRealtimeRestrictionCounts();
     }
 
-    void reset(bool preserve_weights) {
+    void reset() {
         EnsureSimulation();
-        simulation_->ResetForNextRound(preserve_weights);
+        simulation_->ResetForNextRound();
         initialized_ = true;
     }
 
@@ -488,12 +545,18 @@ public:
 
     void save_weights(const std::string& path) {
         EnsureSimulation();
-        simulation_->SaveWeightToFile(path.c_str());
+        std::string reason;
+        if (!simulation_->SaveWeightToFile(path.c_str(), &reason)) {
+            throw std::runtime_error("SaveWeightToFile failed: " + reason);
+        }
     }
 
     void load_weights(const std::string& path) {
         EnsureSimulation();
-        simulation_->LoadWeight(path.c_str());
+        std::string reason;
+        if (!simulation_->LoadWeight(path.c_str(), &reason)) {
+            throw std::runtime_error("LoadWeight failed: " + reason);
+        }
     }
 
     int dense_subnetwork_count() const {
@@ -955,6 +1018,7 @@ private:
 
     std::unique_ptr<Simulation> simulation_;
     bool initialized_;
+    npgr::streaming::StreamingBuildStats build_stats_;
 };
 
 bool HasNativeParameterKind(const py::handle& value) {
@@ -1673,6 +1737,24 @@ PYBIND11_MODULE(_core, module) {
             return data;
         });
 
+    py::class_<npgr::streaming::StreamingBuildOptions>(module, "StreamingBuildOptions")
+        .def(py::init<>())
+        .def(py::init([](std::uint64_t memory_budget_bytes,
+                         bool use_mmap,
+                         bool verify_checksum) {
+                 npgr::streaming::StreamingBuildOptions options;
+                 options.memory_budget_bytes = memory_budget_bytes;
+                 options.use_mmap = use_mmap;
+                 options.verify_checksum = verify_checksum;
+                 return options;
+             }),
+             py::arg("memory_budget_bytes") = 128ULL * 1024ULL * 1024ULL,
+             py::arg("mmap") = true,
+             py::arg("verify_checksum") = true)
+        .def_readwrite("memory_budget_bytes", &npgr::streaming::StreamingBuildOptions::memory_budget_bytes)
+        .def_readwrite("mmap", &npgr::streaming::StreamingBuildOptions::use_mmap)
+        .def_readwrite("verify_checksum", &npgr::streaming::StreamingBuildOptions::verify_checksum);
+
     py::class_<NativeNetworkDescription>(module, "NetworkDescription")
         .def(py::init<>())
         .def("add_layer",
@@ -1752,6 +1834,13 @@ PYBIND11_MODULE(_core, module) {
         .def(py::init<const NativeNetworkDescription&, const NativeSimulationConfig&>(),
              py::arg("network"),
              py::arg("config"))
+        .def(py::init<const std::string&,
+                      const NativeSimulationConfig&,
+                      const npgr::streaming::StreamingBuildOptions&>(),
+             py::arg("network_file"),
+             py::arg("config"),
+             py::arg("build_options"))
+        .def_property_readonly("build_stats", &NativeSimulation::build_stats)
         .def("init", &NativeSimulation::init)
         .def("run", &NativeSimulation::run, py::arg("steps"))
         .def("enable_realtime",
@@ -1769,7 +1858,7 @@ PYBIND11_MODULE(_core, module) {
         .def("reset_realtime_skip_counters", &NativeSimulation::reset_realtime_skip_counters)
         .def("realtime_restriction_counts", &NativeSimulation::realtime_restriction_counts)
         .def("reset_realtime_restriction_counts", &NativeSimulation::reset_realtime_restriction_counts)
-        .def("reset", &NativeSimulation::reset, py::arg("preserve_weights") = true)
+        .def("reset", &NativeSimulation::reset)
         .def("add_external_spikes",
              &NativeSimulation::add_external_spikes,
              py::arg("times"),

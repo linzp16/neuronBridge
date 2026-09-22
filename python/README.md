@@ -19,6 +19,67 @@ The normal CMake build assembles an importable package under
 `build/<tree>/python/<Config>/neuronbridge`. It never writes `_core.pyd`,
 `_core.so`, or runtime libraries into the source package.
 
+## Temporarily deferred APIs
+
+The following experimental real-time interfaces remain in the source for
+future development, but are temporarily deferred and are not part of the
+current stable support or compatibility contract:
+
+- `Simulation.enable_realtime()`
+- `Simulation.run_realtime()`
+- `Simulation.disable_realtime()`
+- `Simulation.reset_bench_profiling()`
+- `Simulation.bench_profiling_snapshot()`
+- `Simulation.realtime_skip_counters()`
+- `Simulation.reset_realtime_skip_counters()`
+- `Simulation.realtime_restriction_counts()`
+- `Simulation.reset_realtime_restriction_counts()`
+
+Do not depend on these interfaces in production workflows. Their timing,
+counter, behavior, and backward-compatibility guarantees will be defined only
+after the real-time design and validation work resumes.
+
+## Low-memory `.nbnet` construction
+
+Keep using the in-memory API for small networks:
+
+```python
+sim = nb.Simulation(network, config)
+```
+
+For a large static topology, generate a description file incrementally and
+load it through the path overload:
+
+```python
+with nb.NbnetDescriptionBuilder("large_network.nbnet") as builder:
+    builder.add_layer(input_layer)
+    builder.add_layer(output_layer)
+    for batch in generate_connection_batches():
+        builder.append_connections(
+            batch.source,
+            batch.target,
+            weight=batch.weight,
+            max_weight=batch.max_weight,
+            delay=batch.delay,
+        )
+
+sim = nb.Simulation(
+    "large_network.nbnet",
+    config,
+    build_options=nb.StreamingBuildOptions(
+        memory_budget_mb=128,
+        mmap=True,
+        verify_checksum=True,
+    ),
+)
+```
+
+`NbnetDescriptionBuilder` generates the static network description; it does
+not create or run a simulation. `nb.nbnet.from_network()` is convenient for
+conversion and equivalence tests, but an already materialized `Network` still
+incurs its original Python memory cost. Use the incremental builder or
+`nb.nbnet.from_batches()` to avoid that cost.
+
 ## Scientific test environment
 
 NeuronBridge scientific tests require a NumPy 2.x-compatible plotting stack:

@@ -9,6 +9,7 @@
 #include "../source_file_realtime_v1_async/LearningRule/inc/Rule/STDP.h"
 #include "../source_file_realtime_v1_async/Network/inc/NetworkConstructStructure.h"
 #include "../source_file_realtime_v1_async/LearningRule/inc/Rule/CerebullarLearningRule.h"
+#include "../source_file_realtime_v1_async/LearningRule/inc/Rule/AdditiveKernalChange.h"
 
 
 LearningRule* LearningRuleModelFactory::createLearningRuleModel(LearningRuleDescription lrDescription) {
@@ -28,6 +29,10 @@ LearningRule* LearningRuleModelFactory::createLearningRuleModel(LearningRuleDesc
 			}
 			else if (lrDescription.RuleName == "CerebullarLearningRule") {
 				LearningRule* Rule_Model = new CerebullarLearningRule(lrDescription.RuleParameter);
+				return Rule_Model;
+			}
+			else if (lrDescription.RuleName == "AdditiveKernalChange") {
+				LearningRule* Rule_Model = new AdditiveKernalChange(lrDescription.RuleParameter);
 				return Rule_Model;
 			}
 			else {

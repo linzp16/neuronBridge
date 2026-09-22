@@ -1,5 +1,34 @@
 # NeuronBridge 双构建路径与低内存流式构建设计
 
+## 当前落地状态（2026-09-21）
+
+本文同时记录最终目标和分阶段实现。当前已经完成 C++ 原生解析，以及主网、dense/GPU、跨子网路由、OuterDynamic 和 InputConv 的直接流式构建：
+
+- 保留 `Simulation(Network, config)` 快速构建；
+- 新增 `Simulation(path, config, build_options=...)` 路径重载；
+- 新增独立的 `neuronbridge.nbnet` 描述文件生成 helper；
+- `.nbnet` 使用版本化小端格式、JSON 静态元数据、固定宽度二进制连接记录和 SHA-256；
+- `NbnetDescriptionBuilder.append_connections()` 逐批写盘，不在 builder 中保存完整连接图；
+- 支持 `from_network()`、`from_batches()`、`inspect()`、`validate()`、`is_valid()`；
+- 文件加载不调用 `Network.to_native()` 或 Python `_native_description()`；
+- C++ `NbnetReader` 负责 header、边界/溢出检查、SHA-256、metadata 和定长连接记录；
+- pybind 路径构造重载把路径直接交给 C++，按 `memory_budget_mb` 分批读取并支持 mmap；
+- 无 dense/OuterDynamic/InputConv 的主网使用两遍扫描：第一遍统计学习状态，第二遍直接填充最终 `Interconnections[]`；
+- 原始连接索引在直接构建时保持为 `wordination` 索引，可继续使用权重读写 API；
+- dense/GPU、跨子网路由、OuterDynamic 和 InputConv 均进入 C++ 直接流式构建路径；
+- 已实现 fast/streaming 数值一致性、学习规则/原始索引、dense 跨子网、OuterDynamic/InputConv、损坏文件校验和独立进程峰值内存测试。
+
+当前路径不再恢复完整 `std::list<ConnectionDescription>`。纯主网直接对 `NbnetReader` 做两遍扫描；混合网络首先以受预算限制的批次构建 dense 最终布局和边界规划，然后由过滤/重映射连接源直接构建主网。只有 main→dense、OuterDynamic 和 InputConv 所必需的合成接口连接会短暂保存在 staging 中。所有 `.nbnet` 构建均报告 `build_stats["runtime_build_path"] == "streaming_direct"`。
+
+当前 Windows 基准（4096 神经元、16 MiB staging、mmap+checksum）：
+
+| 网络 | 突触数 | fast 峰值工作集 | `streaming_direct` 峰值 | 降幅 | streaming 构建耗时 |
+|---|---:|---:|---:|---:|---:|
+| 主网 | 500,000 | 304.5 MB | 133.5 MB | 56.1% | 0.181 s |
+| 主网 | 1,000,000 | 565.0 MB | 223.8 MB | 60.4% | 0.337 s |
+| dense/GPU | 500,000 | 357.7 MB | 233.7 MB | 34.7% | 0.337 s |
+| dense/GPU | 1,000,000 | 597.4 MB | 350.8 MB | 41.3% | 0.509 s |
+
 ## 1. 背景
 
 NeuronBridge 当前通过 Python `Network` 对象描述神经元层、连接、学习规则、OuterDynamic 和 InputConv，再由 pybind11 转换为 C++ 描述结构，最终构造主网和 dense/GPU 子网。
@@ -81,23 +110,34 @@ sim = nb.Simulation(
 
 ### 4.2 低内存流式构建路径
 
-新增文件入口：
+`Simulation` 对外提供文件路径重载。它仍然是唯一的仿真类型，但文件重载必须进入独立的流式构建函数，不能复用当前完整描述构建过程：
 
 ```python
-options = nb.LowMemoryBuildOptions(
+options = nb.StreamingBuildOptions(
     memory_budget_mb=128,
     mmap=True,
     verify_checksum=True,
-    release_build_buffers=True,
 )
 
-sim = nb.Simulation.from_network_file(
+sim = nb.Simulation(
     "large_network.nbnet",
     nb.SimulationConfig(
         steps=10_000,
         timestep=0.1,
         queues=8,
     ),
+    build_options=options,
+)
+```
+
+接口同时接受 `str` 和 `os.PathLike`。两者通过 `os.fspath()` 归一化后进入同一个原生流式构造函数：
+
+```python
+from pathlib import Path
+
+sim = nb.Simulation(
+    Path("large_network.nbnet"),
+    config,
     build_options=options,
 )
 ```
@@ -110,40 +150,131 @@ sim = nb.Simulation.from_network_file(
 - 大型 dense/GPU 或混合网络；
 - 更重视构建峰值内存，而不是首次生成网络文件的速度。
 
-该路径由 `StreamingNetworkBuilder` 实现，不经过完整的 Python `Network` 和 `NativeNetworkDescription.connections`。
+全部文件路径均不经过完整的 Python `Network`、`Network.to_native()`、`NativeNetworkDescription.connections` 或完整 `std::list<ConnectionDescription>`。dense/GPU 内部连接直接写入 dense runtime layout，main/dense 与 dense/dense 边界由流式分区器生成最终路由，OuterDynamic 和 InputConv 仅追加其运行时必需的合成接口。
+
+Python 层只根据第一个参数是 `Network` 还是路径选择 pybind11 构造重载，不参与实际构建。C++ 层可以在同一个 `NativeSimulation` 上提供两个构造函数，但两个构造函数必须分别委托给：
+
+```text
+fast_build::CreateSimulation(...)
+streaming_build::CreateSimulation(...)
+```
+
+两者不能相互调用，只能在构建完成后共享运行时控制代码。
 
 ### 4.3 不自动替换现有默认行为
 
 `nb.Simulation(network, config)` 必须保持快速构建。不能因为网络达到某个隐藏阈值而在后台自动写文件或改变构建语义。
 
-如后续提供 `build_mode="auto"`，只能作为显式选择：
-
-```python
-sim = nb.Simulation.from_network_file(
-    path,
-    config,
-    build_mode="auto",
-)
-```
+路径重载始终表示流式构建，`Network` 重载始终表示快速构建。首版不提供 `build_mode="auto"`，避免参数含义和内存行为不透明。
 
 如果用户已经在 Python 内存中构造完整网络，再自动切换到流式构建通常已经无法避免 Python 对象带来的内存开销。
 
-## 5. 增量文件写入接口
+### 4.4 对外重载、对内隔离
+
+推荐内部结构：
+
+```text
+Simulation 构造重载
+├── Simulation(Network, Config)
+│    └── FastSimulationBuilder::Build()
+│         └── RuntimeBuildResult
+│
+└── Simulation(Path, Config, StreamingBuildOptions)
+     └── StreamingSimulationBuilder::Build()
+          └── RuntimeBuildResult
+
+Simulation
+└── 接管 RuntimeBuildResult 并提供统一运行接口
+```
+
+统一交接结构只包含构建完成后的运行时资源：
+
+```cpp
+struct RuntimeBuildResult {
+    std::unique_ptr<Network> main_network;
+    std::vector<std::unique_ptr<DenseSubnetworkModel>> dense_subnetworks;
+    std::unique_ptr<RuntimeRoutingTable> routing;
+    std::unique_ptr<RuntimeLearningState> learning_state;
+    BuildStats stats;
+};
+```
+
+隔离规则：
+
+- 快速路径不得包含 `.nbnet` 解析、mmap、外部排序或 staging 内存预算；
+- 流式路径不得恢复完整 `std::list<ConnectionDescription>`；
+- 流式路径不得调用现有全量 `PrepareBlackBoxDenseBuild()`；
+- 两条路径只能共享最终运行时结构、仿真推进、通信、DebugMonitor、权重和 reset；
+- 关闭流式构建功能后，现有 `Simulation(Network, config)` 必须仍能独立编译和运行。
+
+## 5. `.nbnet` 生成 helper 与增量写入接口
+
+`.nbnet` 的生成、查看和验证必须独立于 `Simulation`。建议提供 `neuronbridge.nbnet` helper：
+
+```python
+import neuronbridge.nbnet as nbnet
+```
+
+当前公共接口：
+
+```text
+nbnet.from_network(...)
+nbnet.from_batches(...)
+nbnet.inspect(...)
+nbnet.validate(...)
+nbnet.is_valid(...)
+nbnet.NbnetDescriptionBuilder
+```
+
+### 5.1 从现有 `Network` 生成
+
+```python
+network = nb.Network()
+network.add_layer(...)
+network.connect(...)
+
+result = nb.nbnet.from_network(
+    network,
+    "network.nbnet",
+)
+```
+
+该接口用于迁移现有项目、小型网络和 fast/streaming 等价性测试。由于完整 `Network` 已经存在于 Python 内存中，它不能解决网络描述本身的峰值内存问题。
+
+### 5.2 从批次迭代器生成大型网络
+
+真正低内存的 helper 接受惰性连接批次：
+
+```python
+result = nb.nbnet.from_batches(
+    "large_network.nbnet",
+    layers=layers,
+    connection_batches=generate_connection_batches(),
+    learning_rules=learning_rules,
+    outer_dynamics=outer_dynamics,
+    input_convs=input_convs,
+    options=nb.NbnetWriteOptions(overwrite=False),
+)
+```
+
+`connection_batches` 必须惰性消费。helper 每次只保留当前批次和受预算限制的排序缓冲，不能调用 `list(connection_batches)`。
+
+### 5.3 描述文件增量 Builder
 
 为避免用户先创建巨大的 Python 连接列表，新增增量 writer：
 
 ```python
-with nb.NetworkFileWriter(
+with nb.NbnetDescriptionBuilder(
     "large_network.nbnet",
-    memory_budget_mb=128,
-) as writer:
-    writer.add_layer(...)
-    writer.add_learning_rule(...)
-    writer.add_outer_dynamic(...)
-    writer.add_input_conv(...)
+    options=nb.NbnetWriteOptions(overwrite=False),
+) as builder:
+    builder.add_layer(...)
+    builder.add_learning_rule(...)
+    builder.add_outer_dynamic(...)
+    builder.add_input_conv(...)
 
     for batch in generate_connections(batch_size=100_000):
-        writer.append_connections(
+        builder.append_connections(
             source=batch.source,
             target=batch.target,
             synapse_type=batch.synapse_type,
@@ -154,18 +285,66 @@ with nb.NetworkFileWriter(
             trigger_rule=batch.trigger_rule,
         )
 
-    writer.finalize()
+    result = builder.finalize()
 ```
 
-`append_connections()` 应支持：
+`from_network()` 和 `from_batches()` 都复用 `NbnetDescriptionBuilder`，不分别维护二进制编码逻辑。这个 helper 的职责是帮助用户生成静态 `.nbnet` 网络描述文件，不负责运行仿真，也不是 `Simulation` 的别名。
+
+当前 `append_connections()` 支持有长度的 Python 序列、标量广播和 NumPy 一维数组式索引。以下能力放在后续批量编码优化中：
 
 - NumPy 连续数组；
 - Python buffer protocol；
 - 迭代器产生的固定大小批次；
-- 明确的整数和浮点宽度；
-- 批次级校验，不创建逐连接 Python 对象。
+- 无逐元素 Python 循环的 buffer 解码；
+- dtype/shape 的零拷贝校验。
 
-如果输入连接未按运行时顺序排列，writer 使用受 `memory_budget_mb` 限制的外部归并排序，而不是在内存中一次性排序全部连接。
+如果后续要求输入连接按运行时顺序排列，builder 将使用受内存预算限制的外部归并排序，而不是在内存中一次性排序全部连接；当前 v1 文件保持用户写入顺序。
+
+### 5.4 helper 返回值
+
+helper 返回不可变结果对象，而不只是路径：
+
+```python
+@dataclass(frozen=True)
+class NbnetBuildResult:
+    path: Path
+    file_bytes: int
+    neuron_count: int
+    connection_count: int
+    checksum: str
+```
+
+更细的 section 计数、writer staging 峰值和写入耗时可在格式分区完成后追加，不能通过一次性扫描重新引入内存峰值。
+
+### 5.5 inspect、validate 与命令行入口
+
+```python
+info = nb.nbnet.inspect("large_network.nbnet")
+report = nb.nbnet.validate(
+    "large_network.nbnet",
+    verify_checksum=True,
+)
+```
+
+同时提供：
+
+```text
+python -m neuronbridge.nbnet inspect large_network.nbnet
+python -m neuronbridge.nbnet validate large_network.nbnet
+```
+
+后续可以增加 `from-csv` 和 `from-npz`。不建议使用需要一次性展开全部连接的大型 JSON 作为主要连接输入格式。
+
+### 5.6 写入安全要求
+
+- 默认不覆盖现有文件，除非明确设置 `overwrite=True`；
+- 在目标目录写临时文件，完整校验后原子重命名；
+- 失败时清理临时文件和外部排序 run；
+- 检查磁盘空间、数组长度、dtype、NaN/Inf、索引范围和负 delay；
+- 保留原始 connection index；
+- Windows 和 Linux 写出相同字节序和格式；
+- 返回实际 staging 峰值和耗时；
+- Writer 关闭后禁止继续追加，`finalize()` 行为必须幂等或明确拒绝重复调用。
 
 ## 6. `.nbnet` 文件格式
 
@@ -330,21 +509,30 @@ connection range in final Interconnections[]
 
 ## 9. 统一运行时语义
 
-两种构建入口最终生成相同的运行时抽象：
+`Simulation` 对外提供重载构造，对内由两个互相独立的 Builder 生成相同的 `RuntimeBuildResult`：
 
 ```text
 Network + Connection objects      .nbnet file
              |                         |
              v                         v
-     FastNetworkBuilder       StreamingNetworkBuilder
+ fast_build::CreateSimulation  streaming_build::CreateSimulation
              |                         |
              +------------+------------+
                           v
-                    RuntimeNetwork
+                  RuntimeBuildResult
                           |
                           v
                       Simulation
 ```
+
+`Simulation` 只接管已经构建完成的运行时资源，不在公共初始化函数中通过 `if (streaming)` 混合两套算法。CMake 应将两条路径拆为独立 target：
+
+```text
+NeuronBridge::FastBuilder -------> NeuronBridge::Runtime
+NeuronBridge::StreamingBuilder --> NeuronBridge::Runtime
+```
+
+`StreamingBuilder` 不依赖 `FastBuilder`。建议提供 `NR_ENABLE_STREAMING_BUILD`，用于验证关闭流式功能后快速路径仍能独立构建。
 
 构建完成后，下列功能不能感知网络来自哪条路径：
 
@@ -416,21 +604,25 @@ Windows 使用进程 Working Set/Private Bytes，Linux 使用 RSS/PSS 采样。P
 
 ## 12. 分阶段实施
 
-### 阶段 A：批量 buffer API
+### 阶段 A：文件接口与 Python 侧低内存路径（已完成）
+
+- 增加 `.nbnet` helper、版本、checksum、metadata 和固定记录；
+- 增加 `Simulation(path, ...)` 重载；
+- 文件读取与 `Network.to_native()` 隔离；
+- 按预算分批读取并增加构建统计；
+- 证明 Python 描述构建峰值和进程 Peak Working Set 下降；
+- 保持当前原生运行时结构。
+
+该阶段降低了 Python 描述和转换副本，但还不是真正的原生直接流式运行时构建。
+
+### 阶段 B：批量 buffer 编码与文件分区
 
 - 为连接增加 NumPy/buffer protocol 批量入口；
-- 避免逐元素 Python 对象转换；
+- 避免逐元素 Python 打包和解包；
 - 增加构建内存统计；
-- 不改变现有运行时结构。
-
-该阶段可以较快降低 Python 侧开销，但还不是真正的流式运行时构建。
-
-### 阶段 B：`.nbnet` writer 和 reader
-
-- 实现格式、版本、checksum 和 metadata；
-- 实现分块 writer；
-- 实现 mmap/分块 reader；
-- 支持普通主网和无学习连接。
+- 按 main/dense/GPU/OuterDynamic 所有权写入独立 section；
+- 增加外部排序和原始连接索引；
+- 完成 Windows/Linux 字节级交叉读取测试。
 
 ### 阶段 C：主网直接构建
 
@@ -461,11 +653,19 @@ Windows 使用进程 Working Set/Private Bytes，Linux 使用 RSS/PSS 采样。P
 # 小型网络：默认快速构建
 sim = nb.Simulation(network, config)
 
-# 大型网络：显式低内存构建
-sim = nb.Simulation.from_network_file(
+# 大型网络：先通过独立 helper 生成文件
+result = nb.nbnet.from_batches(
+    "network.nbnet",
+    layers=layers,
+    connection_batches=generate_connection_batches(),
+    options=nb.NbnetWriteOptions(overwrite=False),
+)
+
+# 同一个 Simulation 类型，通过路径重载进入独立流式构建函数
+sim = nb.Simulation(
     "network.nbnet",
     config,
-    build_options=nb.LowMemoryBuildOptions(
+    build_options=nb.StreamingBuildOptions(
         memory_budget_mb=128,
         mmap=True,
         verify_checksum=True,
@@ -473,4 +673,4 @@ sim = nb.Simulation.from_network_file(
 )
 ```
 
-设计原则是：保留快速路径的便利性和速度，通过独立文件入口为大型网络提供真正受内存预算约束的构建路径，二者最终共享完全一致的仿真运行时语义。
+设计原则是：`Simulation` 对外重载，构建函数对内隔离，运行时统一；`.nbnet` 生成 helper 独立于仿真生命周期。这样既保留现有 API 的便利性，也能使大型网络使用真正受内存预算约束且可单独维护的构建路径。

@@ -52,7 +52,7 @@ def repeated_run_reset():
     first = sim.neuron_states([2, 3])
     sim.run(5)
     second = sim.neuron_states([2, 3])
-    sim.reset(preserve_weights=True).run(5)
+    sim.reset().run(5)
     third = sim.neuron_states([2, 3])
     return {"first": first, "second": second, "after_reset": third}
 

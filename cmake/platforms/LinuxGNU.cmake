@@ -18,8 +18,8 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
-   CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
-  message(FATAL_ERROR "NeuronBridge requires GCC 11 or newer on Linux")
+   CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+  message(FATAL_ERROR "NeuronBridge requires GCC 9 or newer on Linux")
 endif()
 
 find_package(Threads REQUIRED)

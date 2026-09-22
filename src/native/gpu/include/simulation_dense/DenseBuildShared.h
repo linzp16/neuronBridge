@@ -21,6 +21,7 @@ class NeuronModel;
 class Interconnections;
 
 namespace npgr {
+namespace streaming { class NbnetReader; }
 namespace sim_support {
 
 struct DenseSubnetworkBuildSpec {
@@ -138,6 +139,11 @@ PreparedSimulationBuild PrepareBlackBoxDenseBuild(const std::list<NeuronLayerDes
                                                   const std::list<ConnectionDescription>& connection_list,
                                                   const std::list<LearningRuleDescription>& learning_rule_list,
                                                   float basetimestep);
+PreparedSimulationBuild PrepareBlackBoxDenseBuildStreaming(
+    const std::list<NeuronLayerDescription>& neuron_layer_list,
+    const streaming::NbnetReader& reader,
+    const std::list<LearningRuleDescription>& learning_rule_list,
+    float basetimestep);
 // Collects all legacy neuron-model pointers from an already built Network.
 std::vector<const NeuronModel*> CollectAllNeuronModels(const Network* network);
 // Finds the concrete main-network connection used as a dense interface binding.

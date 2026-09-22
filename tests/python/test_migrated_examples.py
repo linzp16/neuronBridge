@@ -1,5 +1,7 @@
 from pathlib import Path
 import importlib
+import math
+import socket
 import sys
 import time
 from array import array
@@ -234,6 +236,30 @@ def test_native_multi_outer_dynamic_monitor_schema(tmp_path):
     plt.close("all")
 
 
+def test_outer_dynamic_runtime_state_control_interfaces():
+    if not nb.backend_info()["native_extension_loaded"]:
+        pytest.skip("native extension is not built")
+
+    network = nb.Network()
+    network.add_outer_dynamic(nb.OuterDynamic.strict_matlab_planar_arm_2dof(name="controlled_arm"))
+    sim = nb.Simulation(network, nb.SimulationConfig(steps=4, timestep=1.0)).init()
+    sim.reset_outer_dynamic_state("controlled_arm", [0.25, 1.0], [0.1, -0.2])
+    sim.set_outer_dynamic_desired_state("controlled_arm", [0.75, 0.5], [0.3, 0.4])
+    sim.run(1)
+    state = sim.outer_dynamic_state()
+    assert state["q"] == pytest.approx([0.25, 1.0], abs=0.25)
+    assert all(math.isfinite(value) for value in state["qv"])
+    assert state["q_des"] == pytest.approx([0.75, 0.5])
+    assert state["qv_des"] == pytest.approx([0.3, 0.4])
+
+    with pytest.raises(ValueError, match="exactly 2"):
+        sim.reset_outer_dynamic_state("controlled_arm", [0.0], [0.0, 0.0])
+    with pytest.raises(KeyError, match="missing_arm"):
+        sim.reset_outer_dynamic_state("missing_arm", [0.0, 0.0], [0.0, 0.0])
+    with pytest.raises(KeyError, match="missing_arm"):
+        sim.set_outer_dynamic_desired_state("missing_arm", [0.0, 0.0], [0.0, 0.0])
+
+
 def test_python_network_description_to_dict():
     network = nb.Network()
     network.add_layer(nb.NeuronLayer.input_spike(1))
@@ -422,12 +448,54 @@ def test_input_conv_frame_publisher_summary():
         assert publisher.port > 0
         assert publisher.topic == "summary_topic"
         publisher.publish_frame(frame, repeat=2)
+        publisher.publish_frames(
+            [
+                frame,
+                nb.InputConvFrame(
+                    time_step=4,
+                    source_camera_index=0,
+                    width=2,
+                    height=2,
+                    channels=1,
+                    bytes=bytes([4, 3, 2, 1]),
+                ),
+            ]
+        )
         summary = publisher.summary()
-        assert summary["published_frames"] == 1
-        assert summary["published_messages"] == 2
-        assert summary["last_time_step"] == 3
-        assert summary["last_source_camera_index"] == 1
+        assert summary["published_frames"] == 3
+        assert summary["published_messages"] == 4
+        assert summary["last_time_step"] == 4
+        assert summary["last_source_camera_index"] == 0
     assert publisher.closed
+
+
+def test_input_conv_publisher_wait_for_native_receiver_success_and_timeout():
+    class FakeSimulation:
+        def __init__(self, values):
+            self.values = iter(values)
+            self.last = 0
+
+        def input_conv_frame_source_status(self, _source):
+            self.last = next(self.values, self.last)
+            return {"received_frames": self.last}
+
+    publisher = nb.InputConvFramePublisher(autostart=False)
+    status = publisher.wait_for_native_receiver(
+        FakeSimulation([1, 2, 3]),
+        "camera",
+        min_received_frames=3,
+        timeout_s=0.1,
+        poll_interval_s=0.001,
+    )
+    assert status["received_frames"] == 3
+
+    with pytest.raises(TimeoutError, match="did not reach received_frames=1"):
+        publisher.wait_for_native_receiver(
+            FakeSimulation([0]),
+            "camera",
+            min_received_frames=1,
+            timeout_s=0.0,
+        )
 
 
 def test_input_conv_frame_client_server_roundtrip():
@@ -505,6 +573,12 @@ def test_phase3_simulation_lifecycle_and_weight_io(tmp_path):
     sim.run(1)
     sim.flush()
     assert sim.result().path == monitor_dir
+    sim.disable_debug_monitor()
+    sim.run(1)
+    sim.enable_debug_monitor(nb.DebugMonitorConfig(output_dir=monitor_dir))
+    sim.run(1)
+    sim.flush()
+    sim.disable_debug_monitor()
 
 
 def test_baseline_simulation_weight_smoke(tmp_path):
@@ -803,6 +877,80 @@ def test_zmqcommunication_client_python_migration_smoke(tmp_path):
     assert summary["monitor_state_bytes"] > 0
 
 
+def test_async_zmq_spike_driver_end_to_end():
+    zmq = pytest.importorskip("zmq")
+
+    def free_port() -> int:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+        probe.close()
+        return port
+
+    input_port = free_port()
+    output_port = free_port()
+    while output_port == input_port:
+        output_port = free_port()
+
+    context = zmq.Context()
+    robot_publisher = context.socket(zmq.PUB)
+    snn_subscriber = context.socket(zmq.SUB)
+    robot_publisher.linger = 0
+    snn_subscriber.linger = 0
+    snn_subscriber.setsockopt_string(zmq.SUBSCRIBE, "/snn/test")
+    robot_publisher.bind(f"tcp://127.0.0.1:{input_port}")
+    snn_subscriber.connect(f"tcp://127.0.0.1:{output_port}")
+    try:
+        network = nb.Network()
+        network.add_layer(nb.NeuronLayer.input_spike(1, output=True, monitored=True))
+        sim = nb.Simulation(
+            network,
+            nb.SimulationConfig(steps=25, timestep=0.1, event_queue="timing_wheel", timing_wheel_size=64),
+        )
+        sim.add_zmq_async_input_output_spike_driver(
+            subscribe_address="127.0.0.1",
+            publish_port=output_port,
+            subscribe_port=input_port,
+            publish_topic="/snn/test",
+            subscribe_topic="/robot/test",
+            communication_interval=5,
+        )
+        sim.init()
+        time.sleep(1.0)
+
+        header, payload = pack_spike_batch(0, [SpikeRecord(0, 0.6, 0.1)])
+        for _ in range(3):
+            robot_publisher.send_string("/robot/test", zmq.SNDMORE)
+            robot_publisher.send(header, zmq.SNDMORE)
+            robot_publisher.send(payload)
+            time.sleep(0.01)
+
+        sim.add_external_spikes([1, 6, 11, 16], [0, 0, 0, 0]).run(25)
+        sim.publish_output()
+
+        poller = zmq.Poller()
+        poller.register(snn_subscriber, zmq.POLLIN)
+        batches = []
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if snn_subscriber not in dict(poller.poll(25)):
+                continue
+            parts = snn_subscriber.recv_multipart()
+            assert len(parts) in (2, 3)
+            topic = parts[0].decode("utf-8")
+            batch_step, spikes = unpack_spike_batch(parts[1], parts[2] if len(parts) == 3 else b"")
+            batches.append((topic, batch_step, spikes))
+
+        assert batches
+        assert all(topic == "/snn/test" for topic, _, _ in batches)
+        assert any(spike.neuron == 0 for _, _, spikes in batches for spike in spikes)
+        assert len(sim.output_spikes()) >= 2
+    finally:
+        robot_publisher.close(0)
+        snn_subscriber.close(0)
+        context.term()
+
+
 def test_baseline_dense_subnetwork_export_real():
     if not nb.backend_info()["native_extension_loaded"]:
         pytest.skip("native extension is not built")
@@ -978,6 +1126,9 @@ def test_input_conv_dynamic_frame_queue_native():
     assert status["consumed_frames"] == 0
     assert status["failed_requests"] == 0
 
+    sim.enable_input_conv_monitor(0)
+    sim.disable_input_conv_monitor(0)
+
     sim.run(1)
 
     assert sim.input_conv_input(0) == [10.0, 10.0, 10.0, 10.0]
@@ -987,6 +1138,23 @@ def test_input_conv_dynamic_frame_queue_native():
     assert status["queued_frames"] == 0
     assert status["last_consumed_time_step"] == 0
     assert status["last_source_camera_index"] in (0, 1)
+
+    sim.add_input_conv_frames(
+        "camera_bus",
+        [
+            nb.InputConvFrame(
+                time_step=2,
+                source_camera_index=0,
+                width=2,
+                height=2,
+                channels=1,
+                bytes=bytes([30, 30, 30, 30]),
+            )
+        ],
+    )
+    assert sim.input_conv_frame_source_status("camera_bus")["queued_frames"] == 1
+    sim.clear_input_conv_frame_queue("camera_bus")
+    assert sim.input_conv_frame_source_status("camera_bus")["queued_frames"] == 0
 
     sim.reset()
     sim.run(1)

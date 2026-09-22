@@ -152,23 +152,56 @@ class NeuronLayer:
         self.parameters = _validate_parameters(dict(self.parameters))
 
     @classmethod
-    def input_spike(cls, count: int, **parameters: ParameterValue) -> "NeuronLayer":
-        return cls("InputSpikeNeuronModel", count, parameters=dict(parameters))
+    def input_spike(
+        cls, count: int, *, update_timestep: int = 1, monitored: bool = False,
+        output: bool = False, communication_input: bool = False,
+        **parameters: ParameterValue,
+    ) -> "NeuronLayer":
+        return cls(
+            "InputSpikeNeuronModel", count, update_timestep=update_timestep,
+            monitored=monitored, output=output,
+            communication_input=communication_input, parameters=dict(parameters),
+        )
 
     @classmethod
-    def input_current(cls, count: int, **parameters: ParameterValue) -> "NeuronLayer":
-        return cls("InputCurrentNeuronModel", count, parameters=dict(parameters))
+    def input_current(
+        cls, count: int, *, update_timestep: int = 1, monitored: bool = False,
+        output: bool = False, communication_input: bool = False,
+        **parameters: ParameterValue,
+    ) -> "NeuronLayer":
+        return cls(
+            "InputCurrentNeuronModel", count, update_timestep=update_timestep,
+            monitored=monitored, output=output,
+            communication_input=communication_input, parameters=dict(parameters),
+        )
 
     @classmethod
-    def lif_decay(cls, count: int, **parameters: ParameterValue) -> "NeuronLayer":
-        return cls("TimeDrivenLIF_Exponential_Decay", count, parameters=dict(parameters))
+    def lif_decay(
+        cls, count: int, *, update_timestep: int = 1, monitored: bool = False,
+        output: bool = False, communication_input: bool = False,
+        **parameters: ParameterValue,
+    ) -> "NeuronLayer":
+        return cls(
+            "TimeDrivenLIF_Exponential_Decay", count, update_timestep=update_timestep,
+            monitored=monitored, output=output,
+            communication_input=communication_input, parameters=dict(parameters),
+        )
 
     @classmethod
-    def lif_double(cls, count: int, *, dense_name: str | None = None, **parameters: ParameterValue) -> "NeuronLayer":
+    def lif_double(
+        cls, count: int, *, dense_name: str | None = None,
+        update_timestep: int = 1, monitored: bool = False,
+        output: bool = False, communication_input: bool = False,
+        **parameters: ParameterValue,
+    ) -> "NeuronLayer":
         params = dict(parameters)
         if dense_name is not None:
             params["dense_subnetwork_name"] = dense_name
-        return cls("TimeDrivenLIF_Exponential_double", count, parameters=params)
+        return cls(
+            "TimeDrivenLIF_Exponential_double", count, update_timestep=update_timestep,
+            monitored=monitored, output=output,
+            communication_input=communication_input, parameters=params,
+        )
 
     @classmethod
     def poisson_rate(
@@ -178,6 +211,10 @@ class NeuronLayer:
         dense_name: str | None = None,
         rate_bias_hz: float | None = None,
         rate_gain_hz_per_current: float | None = None,
+        update_timestep: int = 1,
+        monitored: bool = False,
+        output: bool = False,
+        communication_input: bool = False,
         **parameters: ParameterValue,
     ) -> "NeuronLayer":
         params = dict(parameters)
@@ -187,7 +224,11 @@ class NeuronLayer:
             params["poisson_rate_bias_hz"] = float32(rate_bias_hz)
         if rate_gain_hz_per_current is not None:
             params["poisson_rate_gain_hz_per_current"] = float32(rate_gain_hz_per_current)
-        return cls("PoissonRate", count, parameters=params)
+        return cls(
+            "PoissonRate", count, update_timestep=update_timestep,
+            monitored=monitored, output=output,
+            communication_input=communication_input, parameters=params,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {

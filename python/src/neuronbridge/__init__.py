@@ -1,5 +1,11 @@
 """Python interface for the NeuronBridge neural simulation runtime."""
 
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import time
+
 from .config import DebugMonitorConfig
 from .communication import InputConvFrameClient, InputConvFramePublisher, InputConvFrameServer
 from .frames import (
@@ -33,6 +39,16 @@ from .model import (
     int32_list,
 )
 from .results import DebugMonitorResult
+from . import nbnet
+from .nbnet import (
+    NbnetBuildResult,
+    NbnetDescriptionBuilder,
+    NbnetFileInfo,
+    NbnetLayerHandle,
+    NbnetValidationReport,
+    NbnetWriteOptions,
+    StreamingBuildOptions,
+)
 
 try:
     from . import _core
@@ -56,14 +72,22 @@ __all__ = [
     "InputConvPixelFormat",
     "LearningRule",
     "NativeParameter",
+    "NbnetBuildResult",
+    "NbnetDescriptionBuilder",
+    "NbnetFileInfo",
+    "NbnetLayerHandle",
+    "NbnetValidationReport",
+    "NbnetWriteOptions",
     "Network",
     "NeuronLayer",
     "OuterDynamic",
     "OuterDynamicConnection",
     "SimulationConfig",
     "Simulation",
+    "StreamingBuildOptions",
     "backend_info",
     "catalog",
+    "nbnet",
     "float32",
     "float32_array3",
     "float32_array4",
@@ -100,17 +124,51 @@ def backend_info() -> dict:
 class Simulation:
     """High-level facade for the native C++ Simulation lifecycle."""
 
-    def __init__(self, network: Network, config: SimulationConfig):
+    def __init__(
+        self,
+        network: Network | str | os.PathLike[str],
+        config: SimulationConfig,
+        *,
+        build_options: StreamingBuildOptions | None = None,
+    ):
         if _core is None:
             raise RuntimeError("neuronbridge native extension is not built")
-        if not isinstance(network, Network):
-            raise TypeError("Simulation expects a neuronbridge.Network")
         if not isinstance(config, SimulationConfig):
             raise TypeError("Simulation expects a neuronbridge.SimulationConfig")
-        self.network = network
         self.config = config
-        self._native = _core.Simulation(network.to_native(), config.to_native())
+        build_started = time.perf_counter()
+        if isinstance(network, Network):
+            if build_options is not None:
+                raise TypeError("build_options is only valid when Simulation receives an .nbnet path")
+            self.network: Network | None = network
+            self.network_file: Path | None = None
+            self._native = _core.Simulation(network.to_native(), config.to_native())
+            self._build_stats = {
+                "mode": "in_memory",
+                "neuron_count": network.neuron_count,
+                "connection_block_count": len(network.connections),
+            }
+        elif isinstance(network, (str, os.PathLike)):
+            options = build_options or StreamingBuildOptions()
+            if not isinstance(options, StreamingBuildOptions):
+                raise TypeError("build_options must be a StreamingBuildOptions")
+            self.network = None
+            self.network_file = Path(network).resolve()
+            self._native = _core.Simulation(
+                os.fspath(self.network_file),
+                config.to_native(),
+                options.to_native(),
+            )
+            self._build_stats = dict(self._native.build_stats)
+        else:
+            raise TypeError("Simulation expects a neuronbridge.Network or an .nbnet path")
+        self._build_stats["total_build_seconds"] = time.perf_counter() - build_started
         self._debug_monitor_config: DebugMonitorConfig | None = None
+
+    @property
+    def build_stats(self) -> dict:
+        """Return construction-path diagnostics for this simulation."""
+        return dict(self._build_stats)
 
     @property
     def initialized(self) -> bool:
@@ -141,7 +199,9 @@ class Simulation:
         second_section: float = 0.5,
         third_section: float = 0.75,
     ) -> "Simulation":
-        """Enable native real-time pacing for subsequent ``run_realtime`` calls.
+        """Temporarily deferred experimental API; not in the stable support scope.
+
+        Enable native real-time pacing for subsequent ``run_realtime`` calls.
 
         ``slot_steps=0`` lets the native runtime use the configured communication
         interval.  The section values control how aggressively non-essential
@@ -157,44 +217,45 @@ class Simulation:
         return self
 
     def disable_realtime(self) -> "Simulation":
-        """Disable native real-time pacing."""
+        """Temporarily deferred experimental API; disable native real-time pacing."""
         self._native.disable_realtime()
         return self
 
     def run_realtime(self, steps: int | None = None) -> "Simulation":
-        """Run using the native watchdog and wall-clock pacing."""
+        """Temporarily deferred experimental API; run with native real-time pacing."""
         self._native.run_realtime(self.config.steps if steps is None else int(steps))
         return self
 
     def reset_bench_profiling(self) -> "Simulation":
-        """Reset native event/propagation/learning profiling counters."""
+        """Temporarily deferred experimental API; reset native profiling counters."""
         self._native.reset_bench_profiling()
         return self
 
     def bench_profiling_snapshot(self) -> dict:
-        """Return native timing counters collected since the last reset."""
+        """Temporarily deferred experimental API; return native timing counters."""
         return dict(self._native.bench_profiling_snapshot())
 
     def realtime_skip_counters(self) -> dict:
-        """Return exact counts of event work skipped by realtime restrictions."""
+        """Temporarily deferred experimental API; return realtime skip counters."""
         return dict(self._native.realtime_skip_counters())
 
     def reset_realtime_skip_counters(self) -> "Simulation":
-        """Reset exact realtime restriction skip counters."""
+        """Temporarily deferred experimental API; reset realtime skip counters."""
         self._native.reset_realtime_skip_counters()
         return self
 
     def realtime_restriction_counts(self) -> dict:
-        """Return watchdog samples spent at each realtime restriction level."""
+        """Temporarily deferred experimental API; return restriction-level counts."""
         return dict(self._native.realtime_restriction_counts())
 
     def reset_realtime_restriction_counts(self) -> "Simulation":
-        """Reset realtime watchdog restriction-level counters."""
+        """Temporarily deferred experimental API; reset restriction-level counts."""
         self._native.reset_realtime_restriction_counts()
         return self
 
-    def reset(self, *, preserve_weights: bool = True) -> "Simulation":
-        self._native.reset(preserve_weights)
+    def reset(self) -> "Simulation":
+        """Reset dynamic simulation state while preserving current weights."""
+        self._native.reset()
         return self
 
     def add_external_spikes(self, times: list[int], neuron_ids: list[int]) -> "Simulation":

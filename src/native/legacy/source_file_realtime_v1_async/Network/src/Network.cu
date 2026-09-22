@@ -6,9 +6,12 @@
 #include "../source_file_realtime_v1_async/LearningRule/inc/LearningRule.h"
 #include "../source_file_realtime_v1_async/Openmp/inc/Openmp.h"
 #include "../source_file_realtime_v1_async/NeuralModel/inc/NeuralStateVector/Neuron_State_Vector.h"
+#include "streaming_build/NbnetReader.h"
 #include <cuda_runtime.h>
 #include "../source_file_realtime_v1_async/error/cudaerror.h"
 #include <algorithm>
+#include <limits>
+#include <stdexcept>
 
 
 
@@ -19,6 +22,11 @@ Network::Network() :
 Network::Network(const std::list<NeuronLayerDescription>& neuron_layer_list, const std::list<ConnectionDescription>& connection_list, const std::list<LearningRuleDescription>& learning_rule_list, int NumberOfQueue, float basetimestepsize, Simulation* simulation) :
 	inters(0), intersNum(0), neurontypes(0), neurontypesNum(0), neurons(0), neuronsNum(0), TimeDrivenNeurons(0), TimeDrivenNeuronsNum(0), TimeDrivenNeuronsGPU(0), TimeDrivenNeuronsNumGPU(0), NumberOfQueue(NumberOfQueue), LearningRuleNum(0), LearningRules(0), isMonitor(false), wordination(0), timesteps(1), basetemestepsize(basetimestepsize){
 	this->CompileNetwork(neuron_layer_list, connection_list, learning_rule_list, simulation);
+}
+
+Network::Network(const std::list<NeuronLayerDescription>& neuron_layer_list, const npgr::streaming::ConnectionRecordSource& source, const std::list<LearningRuleDescription>& learning_rule_list, int NumberOfQueue, float basetimestepsize, Simulation* simulation) :
+	inters(0), intersNum(0), neurontypes(0), neurontypesNum(0), neurons(0), neuronsNum(0), TimeDrivenNeurons(0), TimeDrivenNeuronsNum(0), TimeDrivenNeuronsGPU(0), TimeDrivenNeuronsNumGPU(0), NumberOfQueue(NumberOfQueue), LearningRuleNum(0), LearningRules(0), isMonitor(false), wordination(0), timesteps(1), basetemestepsize(basetimestepsize) {
+	this->CompileNetworkStreaming(neuron_layer_list, source, learning_rule_list, simulation);
 }
 
 Network::~Network() {
@@ -378,6 +386,72 @@ void Network::CreateConnections(const std::list<ConnectionDescription>& connecti
 		}
 	}
 }
+void Network::CreateConnectionsStreaming(const npgr::streaming::ConnectionRecordSource& source, std::vector<int>& N_connectionsPerRule) {
+	std::uint64_t connection_count = 0;
+	// Pass 1 counts plasticity state without retaining decoded records.
+	source.ForEachConnectionBatch([&](const std::vector<npgr::streaming::ConnectionRecordV1>& records) {
+		connection_count += records.size();
+		if (connection_count > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+			throw std::runtime_error("streamed connection count exceeds legacy runtime int capacity");
+		}
+		for (const auto& record : records) {
+			const int rule_ids[2] = { record.synapse_rule, record.trigger_rule };
+			for (int rule_id : rule_ids) {
+				if (rule_id < -1 || rule_id >= this->LearningRuleNum) {
+					throw std::runtime_error("nbnet connection references an invalid learning rule");
+				}
+				if (rule_id >= 0) N_connectionsPerRule[static_cast<std::size_t>(rule_id)]++;
+			}
+		}
+	});
+	this->intersNum = static_cast<int>(connection_count);
+
+	this->inters = new Interconnections[this->intersNum];
+	this->wordination = new Interconnections*[this->intersNum];
+	int posc = 0;
+	// Pass 2 writes directly into the final legacy runtime array.
+	source.ForEachConnectionBatch([&](const std::vector<npgr::streaming::ConnectionRecordV1>& records) {
+		for (const auto& record : records) {
+			Interconnections& connection = this->inters[posc];
+			connection.SetIndex(posc);
+			connection.SetDelay(static_cast<int>(record.delay));
+			connection.SetSourceNeuron(&(this->neurons[record.source]));
+			connection.SetTargetNeuron(&(this->neurons[record.target]));
+			connection.SetWeight(record.weight);
+			connection.SetType(record.synapse_type);
+			connection.SetTargetNeuronModel(this->neurons[record.target].neuron_model);
+			connection.SetTargetNeuronModelIndex(this->neurons[record.target].index_in_NeuronModel);
+			connection.maximum_weight = record.max_weight;
+			connection.TargetNeuronModel->CheckType(&connection);
+			connection.LearningRule_withPost = NULL;
+			connection.LearningRule_withTrigger = NULL;
+			connection.LearningRule_withPostAndTrigger = NULL;
+
+			if (record.synapse_rule >= 0) {
+				LearningRule* rule = this->LearningRules[record.synapse_rule];
+				if (rule->ImplementPostSynaptic()) {
+					if (rule->ImplementTriggerSynaptic()) connection.LearningRule_withPostAndTrigger = rule;
+					else connection.LearningRule_withPost = rule;
+				} else {
+					connection.LearningRule_withTrigger = rule;
+				}
+			}
+			if (record.trigger_rule >= 0) {
+				LearningRule* rule = this->LearningRules[record.trigger_rule];
+				if (rule->ImplementTriggerSynaptic()) {
+					if (!rule->ImplementPostSynaptic()) connection.LearningRule_withTrigger = rule;
+					else connection.LearningRule_withPostAndTrigger = rule;
+					connection.TriggerLearning = true;
+				}
+			}
+			++posc;
+		}
+	});
+	if (posc != this->intersNum) {
+		throw std::runtime_error("nbnet connection count changed between streaming passes");
+	}
+}
+
 //该函数用于比较两个连接的优先级
 int qsort_connections(const void* a, const void* b) {
 	int ord;
@@ -511,17 +585,13 @@ void Network::RestoreInitialWeights() {
 	}
 }
 
-void Network::ResetDynamicState(bool preserve_weights) {
+void Network::ResetDynamicState() {
 	for (int z = 0; z < this->neurontypesNum; ++z) {
 		for (int q = 0; q < this->NumberOfQueue; ++q) {
 			if (this->neurontypes[z][q] != 0 && this->neurontypes[z][q]->StateVector != 0) {
 				this->neurontypes[z][q]->StateVector->ResetAllNeuronStates();
 			}
 		}
-	}
-
-	if (!preserve_weights) {
-		this->RestoreInitialWeights();
 	}
 }
 
@@ -695,6 +765,28 @@ void Network::CompileNetwork(const std::list<NeuronLayerDescription>& neuron_lay
 	}
 }
 
+void Network::CompileNetworkStreaming(const std::list<NeuronLayerDescription>& neuron_layer_list, const npgr::streaming::ConnectionRecordSource& source, const std::list<LearningRuleDescription>& learning_rule_list, Simulation* simulation) {
+	this->CreateNeuronModel(neuron_layer_list, this->timesteps, this->basetemestepsize, simulation);
+	std::vector<int> N_ConnectionPerRule = this->CreateWeightChange(learning_rule_list);
+	this->CreateConnectionsStreaming(source, N_ConnectionPerRule);
+	this->InitializeSynapticPlasticityState(N_ConnectionPerRule);
+	this->CaculateOutputConnection();
+	this->setWeightOrdination();
+	this->SnapshotInitialWeights();
+	this->CaculateInputConnection();
+	for (int i = 0; i < this->neuronsNum; i++) {
+		this->neurons[i].CaculateOutputDelayStructure();
+	}
+	for (int i = 0; i < this->neuronsNum; i++) {
+		this->neurons[i].PropogationStructure->CalculateSynapseDelayIndex(this->neurons[i].neuron_model->PropogationStructure);
+	}
+	for (int z = 0; z < this->neurontypesNum; z++) {
+		for (int j = 0; j < this->NumberOfQueue; j++) {
+			this->neurontypes[z][j]->InitializeInputCurrentSynapseStructure();
+		}
+	}
+}
+
 std::vector<int> Network::CreateWeightChange(const std::list<LearningRuleDescription>& learning_rule_list) {
 	std::list<LearningRuleDescription>::const_iterator learning_rule_it;
 	this->LearningRuleNum = learning_rule_list.size();
@@ -706,6 +798,11 @@ std::vector<int> Network::CreateWeightChange(const std::list<LearningRuleDescrip
 	for (learning_rule_it = learning_rule_list.begin(); weight_change_index < this->LearningRuleNum; ++learning_rule_it) {
 		//閫愪竴鍒涘缓瀛︿範瑙勫垯妯″瀷
 		this->LearningRules[weight_change_index] = LearningRuleModelFactory::createLearningRuleModel(*learning_rule_it);
+		if (this->LearningRules[weight_change_index] == 0) {
+			throw std::runtime_error(
+				"Failed to construct learning rule '" + learning_rule_it->RuleName +
+				"' at index " + std::to_string(weight_change_index));
+		}
 		this->LearningRules[weight_change_index]->LearningRuleID = weight_change_index;
 		++weight_change_index;
 	}

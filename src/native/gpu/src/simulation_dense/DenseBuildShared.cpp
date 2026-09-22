@@ -1,4 +1,5 @@
 #include "simulation_dense/DenseBuildShared.h"
+#include "streaming_build/NbnetReader.h"
 
 #include "dense_subnetwork/learning/DenseLearningRuleFactory.h"
 #include "dense_subnetwork/model/DenseNeuronModelFactory.h"
@@ -497,10 +498,71 @@ Interconnections* FindMainConnection(Network* network, int source_id, int target
     return nullptr;
 }
 
-PreparedSimulationBuild PrepareBlackBoxDenseBuild(const std::list<NeuronLayerDescription>& neuron_layer_list,
-                                                  const std::list<ConnectionDescription>& connection_list,
-                                                  const std::list<LearningRuleDescription>& learning_rule_list,
-                                                  float basetimestep) {
+namespace {
+
+class NbnetConnectionBlockRange {
+public:
+    explicit NbnetConnectionBlockRange(const streaming::NbnetReader& reader) : reader_(reader) {}
+
+    class Iterator {
+    public:
+        Iterator(const streaming::NbnetReader* reader, std::uint64_t offset)
+            : reader_(reader), offset_(offset) {
+            Load();
+        }
+        const ConnectionDescription& operator*() const { return block_; }
+        const ConnectionDescription* operator->() const { return &block_; }
+        Iterator& operator++() {
+            offset_ += block_.SourceNeuron.size();
+            Load();
+            return *this;
+        }
+        bool operator!=(const Iterator& other) const { return offset_ != other.offset_; }
+
+    private:
+        void Load() {
+            block_ = ConnectionDescription();
+            if (reader_ == nullptr || offset_ >= reader_->connection_count()) return;
+            const std::vector<streaming::ConnectionRecordV1> records =
+                reader_->ReadConnectionBatch(offset_, reader_->batch_records());
+            block_.SourceNeuron.reserve(records.size());
+            block_.TargetNeuron.reserve(records.size());
+            block_.Type.reserve(records.size());
+            block_.Weight.reserve(records.size());
+            block_.MaxWeight.reserve(records.size());
+            block_.Delay.reserve(records.size());
+            block_.SynapseRule.reserve(records.size());
+            block_.TriggerRule.reserve(records.size());
+            for (const auto& record : records) {
+                block_.SourceNeuron.push_back(static_cast<int>(record.source));
+                block_.TargetNeuron.push_back(static_cast<int>(record.target));
+                block_.Type.push_back(record.synapse_type);
+                block_.Weight.push_back(record.weight);
+                block_.MaxWeight.push_back(record.max_weight);
+                block_.Delay.push_back(static_cast<int>(record.delay));
+                block_.SynapseRule.push_back(record.synapse_rule);
+                block_.TriggerRule.push_back(record.trigger_rule);
+            }
+        }
+        const streaming::NbnetReader* reader_;
+        std::uint64_t offset_;
+        ConnectionDescription block_;
+    };
+
+    Iterator begin() const { return Iterator(&reader_, 0); }
+    Iterator end() const { return Iterator(&reader_, reader_.connection_count()); }
+
+private:
+    const streaming::NbnetReader& reader_;
+};
+
+template <typename ConnectionRange>
+PreparedSimulationBuild PrepareBlackBoxDenseBuildImpl(
+    const std::list<NeuronLayerDescription>& neuron_layer_list,
+    const ConnectionRange& connection_list,
+    const std::list<LearningRuleDescription>& learning_rule_list,
+    float basetimestep,
+    bool retain_main_connections) {
     PreparedSimulationBuild prepared;
     auto reject_build = [&](const std::string& message) {
         prepared.build_error = message;
@@ -692,8 +754,9 @@ PreparedSimulationBuild PrepareBlackBoxDenseBuild(const std::list<NeuronLayerDes
     // Second pass routes every original edge into one of four buckets:
     // main->main, main->dense, dense->main, or dense->dense.
     ConnectionDescription* main_bucket_ptr = nullptr;
+    int next_main_runtime_connection_index = 0;
     prepared.original_connection_weight_refs.clear();
-    for (std::list<ConnectionDescription>::const_iterator it = connection_list.begin(); it != connection_list.end(); ++it) {
+    for (auto it = connection_list.begin(); it != connection_list.end(); ++it) {
         for (std::size_t edge_index = 0; edge_index < it->SourceNeuron.size(); ++edge_index) {
             const int source_original = it->SourceNeuron[edge_index];
             const int target_original = it->TargetNeuron[edge_index];
@@ -704,22 +767,23 @@ PreparedSimulationBuild PrepareBlackBoxDenseBuild(const std::list<NeuronLayerDes
 
             if (source_dense_spec < 0 && target_dense_spec < 0) {
                 // Pure main-network edges are copied with compacted main ids.
-                if (main_bucket_ptr == nullptr) {
+                if (retain_main_connections && main_bucket_ptr == nullptr) {
                     main_bucket_ptr = &EnsureConnectionBucket(&prepared.main_connections);
                 }
                 weight_ref.owner = RuntimeConnectionWeightOwner::MainNetwork;
-                weight_ref.runtime_weight_index =
-                    static_cast<int>(main_bucket_ptr->SourceNeuron.size());
+                weight_ref.runtime_weight_index = next_main_runtime_connection_index++;
                 // add the pure main connection
-                AppendConnection(main_bucket_ptr,
-                                 prepared.original_to_main_neuron_id[static_cast<std::size_t>(source_original)],
-                                 prepared.original_to_main_neuron_id[static_cast<std::size_t>(target_original)],
-                                 it->Delay[edge_index],
-                                 it->Weight[edge_index],
-                                 it->MaxWeight[edge_index],
-                                 it->Type[edge_index],
-                                 it->SynapseRule[edge_index],
-                                 it->TriggerRule[edge_index]);
+                if (retain_main_connections) {
+                    AppendConnection(main_bucket_ptr,
+                                     prepared.original_to_main_neuron_id[static_cast<std::size_t>(source_original)],
+                                     prepared.original_to_main_neuron_id[static_cast<std::size_t>(target_original)],
+                                     it->Delay[edge_index],
+                                     it->Weight[edge_index],
+                                     it->MaxWeight[edge_index],
+                                     it->Type[edge_index],
+                                     it->SynapseRule[edge_index],
+                                     it->TriggerRule[edge_index]);
+                }
             } else if (source_dense_spec < 0 && target_dense_spec >= 0) {
                 if (it->SynapseRule[edge_index] >= 0) {
                     return reject_build("main->dense SynapseRule is not supported; use a dense trigger relay neuron");
@@ -1131,6 +1195,26 @@ PreparedSimulationBuild PrepareBlackBoxDenseBuild(const std::list<NeuronLayerDes
     }
 
     return prepared;
+}
+
+}  // namespace
+
+PreparedSimulationBuild PrepareBlackBoxDenseBuild(
+    const std::list<NeuronLayerDescription>& neuron_layer_list,
+    const std::list<ConnectionDescription>& connection_list,
+    const std::list<LearningRuleDescription>& learning_rule_list,
+    float basetimestep) {
+    return PrepareBlackBoxDenseBuildImpl(
+        neuron_layer_list, connection_list, learning_rule_list, basetimestep, true);
+}
+
+PreparedSimulationBuild PrepareBlackBoxDenseBuildStreaming(
+    const std::list<NeuronLayerDescription>& neuron_layer_list,
+    const streaming::NbnetReader& reader,
+    const std::list<LearningRuleDescription>& learning_rule_list,
+    float basetimestep) {
+    return PrepareBlackBoxDenseBuildImpl(
+        neuron_layer_list, NbnetConnectionBlockRange(reader), learning_rule_list, basetimestep, false);
 }
 
 }  // namespace sim_support

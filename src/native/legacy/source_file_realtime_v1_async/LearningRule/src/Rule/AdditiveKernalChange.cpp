@@ -7,7 +7,17 @@
 AdditiveKernalChange::AdditiveKernalChange() : WithTriggerSynaptic() {
 }
 
+AdditiveKernalChange::AdditiveKernalChange(std::map<std::string, boost::any> parametermap) : WithTriggerSynaptic() {
+	this->SetParameters(parametermap);
+}
+
 AdditiveKernalChange::~AdditiveKernalChange() {}
+
+void AdditiveKernalChange::InitState(int NumberOfConnections, int NumberOfNeuron, float basetimestep) {
+	(void)NumberOfNeuron;
+	(void)basetimestep;
+	this->State = new STDP_State(NumberOfConnections, this->LTP_tau, this->LTP_tau);
+}
 
 void AdditiveKernalChange::SetParameters(std::map<std::string, boost::any> parametermap) {
 	std::map<std::string, boost::any>::iterator iter = parametermap.find("a1pre");
@@ -33,6 +43,12 @@ void AdditiveKernalChange::SetParameters(std::map<std::string, boost::any> param
 		this->a2prepre = boost::any_cast<float>(iter->second);
 		parametermap.erase(iter);
 	}
+
+	iter = parametermap.find("LTP_tau");
+	if (iter != parametermap.end()) {
+		this->LTP_tau = boost::any_cast<float>(iter->second);
+		parametermap.erase(iter);
+	}
 }
 
 std::map<std::string, boost::any> AdditiveKernalChange::GetParameters() {
@@ -41,6 +57,7 @@ std::map<std::string, boost::any> AdditiveKernalChange::GetParameters() {
 	parametermap["a2prepre"] = boost::any(this->a2prepre);
 	parametermap["fixweightchange"] = boost::any(this->a1pre);
 	parametermap["kernalchange"] = boost::any(this->a2prepre);
+	parametermap["LTP_tau"] = boost::any(this->LTP_tau);
 	return parametermap;
 }
 

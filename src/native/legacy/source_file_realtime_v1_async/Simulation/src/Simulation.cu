@@ -2,6 +2,7 @@
 #include "debug_monitor/SimulationDebugMonitor.h"
 #include "simulation_dense/SimulationCommonHost.h"
 #include "simulation_dense/DenseSubnetworkModel.h"
+#include "streaming_build/NbnetReader.h"
 #include "../source_file_realtime_v1_async/EventQueue/inc/TimingWheelEventQueue.h"
 #include "../source_file_realtime_v1_async/Event/inc/EndSimulationTime.h"
 #include "../source_file_realtime_v1_async/Event/inc/TimeEventUpdateNeuron.h"
@@ -98,6 +99,18 @@ Simulation::Simulation(const std::list<NeuronLayerDescription>& neuron_layer_lis
 		outer_dynamic_connection_list,
 		input_conv_list,
 		NumberOfQueue);
+}
+
+Simulation::Simulation(const npgr::streaming::NbnetReader& reader, int simulationsteps, float timestep, int NumberOfQueue, EventQueueType eventQueueType, int timingWheelSize) :
+	network(0), EventHeap(0), totaltimesteps(simulationsteps), basetimesteps(timestep), currenttime(0), NumberOfQueue(0), SimulationEnd(0), inputSpikeDriver(0), inputCurrentDriver(0), output_spike_driver(0), file_output_spike_driver(0), file_outer_dynamic_state_driver(0), SyncThread(0), PauseThread(0), DelayMin(-1), file_output_weight_driver(0), zmq_input_output_spike_driver(0), zmq_async_input_output_spike_driver(0), WeightSaveInterval(0), CommunivationInterval(0), neuronMonitorExist(false), RealTimeRestrictionObject(0), RealtimeEnabled(false), RealtimeSlotSteps(0), PrintSimulationTime(false), eventQueueType(eventQueueType), timingWheelSize(timingWheelSize), drivers_initialized(false), outer_dynamic_spike_buffer(0), latest_outer_dynamic_state(), latest_outer_dynamic_time_step(0), has_latest_outer_dynamic_state(false), debug_monitor(0), debug_monitor_config()
+{
+	const npgr::streaming::NbnetMetadata& metadata = reader.metadata();
+	if (!metadata.has_dense_layers && metadata.outer_dynamics.empty() &&
+		metadata.outer_dynamic_connections.empty() && metadata.input_convs.empty()) {
+		npgr::sim_support::ConstructStreamingMainSimulation(this, reader, NumberOfQueue);
+	} else {
+		npgr::sim_support::ConstructStreamingSimulation(this, reader, NumberOfQueue);
+	}
 }
 
 Simulation::~Simulation() {
@@ -301,8 +314,8 @@ void Simulation::ScheduleInitialEvents() {
 	npgr::sim_support::ScheduleInitialEvents(this);
 }
 
-void Simulation::ResetForNextRound(bool preserve_weights) {
-	npgr::sim_support::ResetForNextRound(this, preserve_weights);
+void Simulation::ResetForNextRound() {
+	npgr::sim_support::ResetForNextRound(this);
 }
 
 void Simulation::CountRealtimeSkipped(RealtimeSkipKind kind) {
@@ -344,7 +357,7 @@ void Simulation::ResetRealtimeRestrictionCounts() {
 
 void Simulation::InitSimulation() {
 	npgr::sim_support::BindDriversOnce(this);
-	npgr::sim_support::ResetForNextRound(this, true);
+	npgr::sim_support::ResetForNextRound(this);
 	if (this->debug_monitor_config.enabled ||
 		(this->network != NULL && this->network->isMonitor) ||
 		HasDenseMonitorTargets(this)) {
@@ -988,18 +1001,12 @@ void Simulation::PublishOutput(CommunicationEvent* c_event) {
 
 }
 
-void Simulation::LoadWeight(const char* filename) {
-	std::string reason;
-	if (!npgr::sim_support::LoadSimulationWeights(this, filename, &reason)) {
-		std::cerr << "LoadWeight failed: " << reason << std::endl;
-	}
+bool Simulation::LoadWeight(const char* filename, std::string* reason) {
+	return npgr::sim_support::LoadSimulationWeights(this, filename, reason);
 }
 
-void Simulation::SaveWeightToFile(const char* filename) {
-	std::string reason;
-	if (!npgr::sim_support::SaveSimulationWeights(this, filename, &reason)) {
-		std::cerr << "SaveWeightToFile failed: " << reason << std::endl;
-	}
+bool Simulation::SaveWeightToFile(const char* filename, std::string* reason) {
+	return npgr::sim_support::SaveSimulationWeights(this, filename, reason);
 }
 
 bool Simulation::GetConnectionWeight(int original_connection_index,

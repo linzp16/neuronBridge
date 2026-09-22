@@ -50,6 +50,7 @@ namespace npgr {
 class DenseSubnetworkModel;
 class SimulationDebugMonitor;
 struct DenseSubnetworkDebugSnapshot;
+namespace streaming { class NbnetReader; }
 }
 
 enum EventQueueType { EVENT_QUEUE_HEAP, EVENT_QUEUE_TIMING_WHEEL };
@@ -240,6 +241,14 @@ public:
                EventQueueType eventQueueType = EVENT_QUEUE_HEAP,
                int timingWheelSize = 0);
 
+    // Main-network-only low-memory construction from a reusable nbnet reader.
+    Simulation(const npgr::streaming::NbnetReader& reader,
+               int simulationsteps,
+               float timestep,
+               int NumberOfQueue,
+               EventQueueType eventQueueType = EVENT_QUEUE_HEAP,
+               int timingWheelSize = 0);
+
     // Releases network, drivers, queues, and optional runtime modules.
     ~Simulation();
 
@@ -252,7 +261,7 @@ public:
     // Registers drivers and schedules the first events for a run.
     void InitSimulation();
     // Clears dynamic state and prepares the event queue for another run.
-    void ResetForNextRound(bool preserve_weights = true);
+    void ResetForNextRound();
     void CountRealtimeSkipped(RealtimeSkipKind kind);
     std::array<unsigned long long, static_cast<std::size_t>(RealtimeSkipKind::Count)> GetRealtimeSkipCounters() const;
     void ResetRealtimeSkipCounters();
@@ -351,9 +360,9 @@ public:
     // Loads external input for a communication event.
     void LoadInput(CommunicationEvent* c_event);
     // Loads weights from a file into the network.
-    void LoadWeight(const char* filename);
+    bool LoadWeight(const char* filename, std::string* reason = nullptr);
     // Saves network weights to a file.
-    void SaveWeightToFile(const char* filename);
+    bool SaveWeightToFile(const char* filename, std::string* reason = nullptr);
     // Reads the live weight addressed by the original connection_list flattened index.
     bool GetConnectionWeight(int original_connection_index,
                              float* weight,

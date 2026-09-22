@@ -134,11 +134,16 @@ if(NR_BUILD_TESTS)
       COMMAND "${Python3_EXECUTABLE}" -m pytest -q
               --basetemp "${CMAKE_BINARY_DIR}/pytest-native-smoke-$<CONFIG>"
               "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_native_smoke.py")
+  add_test(NAME neuronbridge_python_nbnet
+      COMMAND "${Python3_EXECUTABLE}" -m pytest -q
+              --basetemp "${CMAKE_BINARY_DIR}/pytest-nbnet-$<CONFIG>"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_nbnet.py")
 
   set(_nr_python_tests
       neuronbridge_python_api
       neuronbridge_python_catalog
-      neuronbridge_python_native_smoke)
+      neuronbridge_python_native_smoke
+      neuronbridge_python_nbnet)
   set_tests_properties(${_nr_python_tests} PROPERTIES
       ENVIRONMENT_MODIFICATION
       "PYTHONPATH=path_list_prepend:${CMAKE_BINARY_DIR}/python/$<CONFIG>")

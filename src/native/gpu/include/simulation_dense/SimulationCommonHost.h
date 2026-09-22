@@ -15,6 +15,7 @@ class InputConvModel;
 namespace npgr {
 class DenseSubnetworkModel;
 struct DenseSubnetworkDebugSnapshot;
+namespace streaming { class NbnetReader; }
 
 namespace sim_support {
 
@@ -60,7 +61,7 @@ bool BindDenseSubnetworkInterfaceCurrentDeviceSource(Simulation* simulation,
 void RecreateEventQueue(Simulation* simulation);
 void BindDriversOnce(Simulation* simulation);
 void ScheduleInitialEvents(Simulation* simulation);
-void ResetForNextRound(Simulation* simulation, bool preserve_weights);
+void ResetForNextRound(Simulation* simulation);
 void ConstructDenseAwareSimulation(Simulation* simulation,
                                    const std::list<NeuronLayerDescription>& neuron_layer_list,
                                    const std::list<ConnectionDescription>& connection_list,
@@ -69,6 +70,12 @@ void ConstructDenseAwareSimulation(Simulation* simulation,
                                    const std::list<OuterDynamicConnectionDescription>& outer_dynamic_connection_list,
                                    const std::list<InputConvDescription>& input_conv_list,
                                    int requested_queue_count);
+void ConstructStreamingMainSimulation(Simulation* simulation,
+                                      const streaming::NbnetReader& reader,
+                                      int requested_queue_count);
+void ConstructStreamingSimulation(Simulation* simulation,
+                                  const streaming::NbnetReader& reader,
+                                  int requested_queue_count);
 
 }  // namespace sim_support
 }  // namespace npgr

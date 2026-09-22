@@ -130,10 +130,20 @@ add_library(NeuronBridge::Dependencies ALIAS neuronbridge_dependencies)
 target_link_libraries(neuronbridge_dependencies INTERFACE
     OpenMP::OpenMP_CXX
     Threads::Threads
-    pinocchio::pinocchio
     NeuronBridge::ZeroMQ)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_link_libraries(neuronbridge_dependencies INTERFACE ${CMAKE_DL_LIBS})
+  # The planar-arm implementation only uses Pinocchio's templated rigid-body
+  # algorithms.  Instantiate them in NeuronBridge instead of linking the
+  # umbrella target, which also pulls parsers, collision engines and their C++
+  # runtimes into every Linux wheel.
+  target_link_libraries(neuronbridge_dependencies INTERFACE
+      pinocchio::pinocchio_headers
+      ${CMAKE_DL_LIBS})
+  target_link_options(neuronbridge_dependencies INTERFACE
+      "-Wl,--as-needed")
+else()
+  target_link_libraries(neuronbridge_dependencies INTERFACE
+      pinocchio::pinocchio)
 endif()
 if(WIN32)
   target_compile_definitions(neuronbridge_dependencies INTERFACE

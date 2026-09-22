@@ -10,6 +10,7 @@
 
 class Interconnections;
 class Simulation;
+namespace npgr { namespace streaming { class ConnectionRecordSource; } }
 
 #include "../source_file_realtime_v1_async/LearningRule/inc/LearningRule.h"
 #include "../source_file_realtime_v1_async/Network/inc/NetworkConstructStructure.h"
@@ -70,7 +71,7 @@ public:
     // Base simulation timestep size in milliseconds.
     float basetemestepsize;
 
-    // Weight snapshot used by ResetDynamicState(false) / RestoreInitialWeights().
+    // Initial weight snapshot retained for explicit restoration support.
     std::vector<float> initial_weights;
 
     // Creates an empty network shell.
@@ -79,6 +80,16 @@ public:
     // Compiles a network from layer, connection, and learning-rule descriptions.
     Network(const std::list<NeuronLayerDescription>& neuron_layer_list,
             const std::list<ConnectionDescription>& connection_list,
+            const std::list<LearningRuleDescription>& learning_rule_list,
+            int NumberOfQueue,
+            float basetimestepsize,
+            Simulation* simulation);
+
+    // Compiles a main-only network directly from an nbnet connection source.
+    // The reader is scanned once for plasticity counts and once to populate the
+    // final Interconnections array, without materializing ConnectionDescription.
+    Network(const std::list<NeuronLayerDescription>& neuron_layer_list,
+            const npgr::streaming::ConnectionRecordSource& source,
             const std::list<LearningRuleDescription>& learning_rule_list,
             int NumberOfQueue,
             float basetimestepsize,
@@ -99,6 +110,11 @@ public:
                         const std::list<LearningRuleDescription>& learning_rule_list,
                         Simulation* simulation);
 
+    void CompileNetworkStreaming(const std::list<NeuronLayerDescription>& neuron_layer_list,
+                                 const npgr::streaming::ConnectionRecordSource& source,
+                                 const std::list<LearningRuleDescription>& learning_rule_list,
+                                 Simulation* simulation);
+
     // Creates neuron model instances and assigns neurons to those models.
     void CreateNeuronModel(const std::list<NeuronLayerDescription>& neuron_layer_list,
                            int timesteps,
@@ -111,6 +127,9 @@ public:
     // Creates concrete Interconnections from the description arrays.
     void CreateConnections(const std::list<ConnectionDescription>& connection_list,
                            std::vector<int>& N_connectionsPerRule);
+
+    void CreateConnectionsStreaming(const npgr::streaming::ConnectionRecordSource& source,
+                                    std::vector<int>& N_connectionsPerRule);
 
     // Builds the mapping between sorted connection order and original objects.
     void setWeightOrdination();
@@ -130,8 +149,8 @@ public:
     // Loads connection weights from a text file.
     void LoadWeightsFromFile(const char* filename);
 
-    // Resets dynamic neuron/synapse state and optionally preserves current weights.
-    void ResetDynamicState(bool preserve_weights = true);
+    // Resets dynamic neuron/synapse state without changing current weights.
+    void ResetDynamicState();
 
     // Stores the current weights as the restore baseline.
     void SnapshotInitialWeights();

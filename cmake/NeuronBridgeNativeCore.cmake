@@ -15,7 +15,8 @@ file(GLOB_RECURSE NR_LEGACY_CPP_SOURCES CONFIGURE_DEPENDS
 set(NR_SHARED_SOURCES
     "${NR_SHARED_ROOT}/src/learning_rule/LearningRuleCatalog.cpp"
     "${NR_SHARED_ROOT}/src/input_conv/InputConvModelCatalog.cpp"
-    "${NR_SHARED_ROOT}/src/neuron_model/NeuronModelCatalog.cpp")
+    "${NR_SHARED_ROOT}/src/neuron_model/NeuronModelCatalog.cpp"
+    "${NR_SHARED_ROOT}/src/streaming_build/NbnetReader.cpp")
 
 if(NR_ENABLE_MODEL_CODEGEN)
   list(APPEND NR_SHARED_SOURCES ${NR_CODEGEN_CPP_SOURCES})
@@ -78,7 +79,11 @@ if(WIN32)
       WIN32_LEAN_AND_MEAN)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_compile_definitions(neuronbridge_native_settings INTERFACE
-      NR_PLATFORM_LINUX=1)
+      NR_PLATFORM_LINUX=1
+      # Pinocchio raises the MPL sequence limits to 30.  Boost's preprocessed
+      # MPL headers only cover the default limit, so force on-demand header
+      # generation to keep PropertyTree/MultiIndex well-formed on GCC.
+      BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS)
 endif()
 if(NR_ENABLE_MODEL_CODEGEN)
   target_compile_definitions(neuronbridge_native_settings INTERFACE
