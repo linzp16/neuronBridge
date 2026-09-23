@@ -20,6 +20,7 @@ def test_remaining_typed_parameter_helpers():
         (nb.float64(1.25), "float64", 1.25),
         (nb.int32_list([1, 2, 3]), "int32_list", [1, 2, 3]),
         (nb.float32_list([1, 2.5]), "float32_list", [1.0, 2.5]),
+        (nb.float32_array5([1, 2, 3, 4, 5]), "float32_array5", [1.0, 2.0, 3.0, 4.0, 5.0]),
     )
     for parameter, kind, expected in values:
         assert parameter.kind == kind

@@ -1060,6 +1060,14 @@ boost::any NativeParameterToAny(const py::handle& value) {
         }
         return boost::any(std::array<float, 4>{values[0], values[1], values[2], values[3]});
     }
+    if (kind == "float32_array5") {
+        const std::vector<float> values = payload.cast<std::vector<float> >();
+        if (values.size() != 5) {
+            throw py::value_error("float32_array5 requires exactly 5 values");
+        }
+        return boost::any(std::array<float, 5>{
+            values[0], values[1], values[2], values[3], values[4]});
+    }
     throw py::type_error("unsupported neuronbridge native parameter kind: " + kind);
 }
 

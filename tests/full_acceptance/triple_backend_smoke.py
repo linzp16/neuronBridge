@@ -18,11 +18,13 @@ def run_legacy(model: str) -> dict:
     sim = nb.Simulation(network, nb.SimulationConfig(steps=80, timestep=1.0)).init()
     sim.add_external_currents([0], [0], [12.0]).run()
     state = sim.neuron_state(1)
+    spikes = sim.output_spikes()
     return {
         "model": model,
         "state": state["state_variables"],
         "finite": all(math.isfinite(float(value)) for value in state["state_variables"]),
-        "spikes": len(sim.output_spikes()),
+        "spikes": len(spikes),
+        "spike_times": [int(spike["time"]) for spike in spikes],
     }
 
 
@@ -57,7 +59,13 @@ def main() -> None:
         "legacy_gpu": run_legacy("TimeDrivenLIF_Exponential_triple_GPU"),
         "dense_gpu": run_dense(),
     }
-    report["pass"] = all(value["finite"] for value in report.values() if isinstance(value, dict))
+    report["cpu_gpu_spike_times_match"] = (
+        report["legacy_cpu"]["spike_times"] == report["legacy_gpu"]["spike_times"]
+    )
+    report["pass"] = (
+        all(value["finite"] for value in report.values() if isinstance(value, dict))
+        and report["cpu_gpu_spike_times_match"]
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))

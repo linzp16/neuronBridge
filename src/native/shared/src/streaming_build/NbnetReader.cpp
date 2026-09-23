@@ -321,6 +321,11 @@ boost::any ParseTaggedParameter(const ptree& node) {
         if (values.size() != 4) throw std::runtime_error("float32_array4 requires 4 values");
         return boost::any(std::array<float, 4>{values[0], values[1], values[2], values[3]});
     }
+    if (kind == "float32_array5") {
+        const std::vector<float> values = ReadVector<float>(value);
+        if (values.size() != 5) throw std::runtime_error("float32_array5 requires 5 values");
+        return boost::any(std::array<float, 5>{values[0], values[1], values[2], values[3], values[4]});
+    }
     throw std::runtime_error("unsupported nbnet parameter kind: " + kind);
 }
 

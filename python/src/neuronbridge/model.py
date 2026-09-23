@@ -32,6 +32,7 @@ class NativeParameter:
             "float64_list",
             "float32_array3",
             "float32_array4",
+            "float32_array5",
         }
         if self.kind not in valid_kinds:
             raise ValueError(f"unsupported native parameter kind: {self.kind}")
@@ -110,6 +111,12 @@ def float32_array4(values: list[float]) -> NativeParameter:
     if len(values) != 4:
         raise ValueError("float32_array4 requires exactly 4 values")
     return NativeParameter("float32_array4", [float(value) for value in values])
+
+
+def float32_array5(values: list[float]) -> NativeParameter:
+    if len(values) != 5:
+        raise ValueError("float32_array5 requires exactly 5 values")
+    return NativeParameter("float32_array5", [float(value) for value in values])
 
 
 def _plain_parameter_value(value: ParameterValue):

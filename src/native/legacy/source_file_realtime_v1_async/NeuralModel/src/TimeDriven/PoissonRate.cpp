@@ -118,6 +118,18 @@ enum NeuronModelType PoissonRate::getNeuronModelType() {
     return NEURAL_LAYER;
 }
 
+bool PoissonRate::compare(NeuronModel* neuronmodel) {
+    if (!TimeDrivenModel::compare(neuronmodel)) {
+        return false;
+    }
+    PoissonRate* other = dynamic_cast<PoissonRate*>(neuronmodel);
+    if (other == 0) {
+        return false;
+    }
+    return this->rate_bias_hz == other->rate_bias_hz &&
+           this->rate_gain_hz_per_current == other->rate_gain_hz_per_current;
+}
+
 void PoissonRate::SetParameters(std::map<std::string, boost::any> parametermap, float basetimestep) {
     (void)basetimestep;
     std::map<std::string, boost::any>::iterator iter = parametermap.find("rate_bias_hz");

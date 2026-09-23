@@ -31,6 +31,7 @@ public:
     virtual int getV_index();
     virtual int get_NumberOfState();
     virtual enum NeuronModelType getNeuronModelType();
+    virtual bool compare(NeuronModel* neuronmodel) override;
     void SetParameters(std::map<std::string, boost::any> parametermap, float basetimestep);
     virtual std::map<std::string, boost::any> getParameters();
 };

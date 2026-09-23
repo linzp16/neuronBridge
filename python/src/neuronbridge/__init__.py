@@ -32,6 +32,7 @@ from .model import (
     float32,
     float32_array3,
     float32_array4,
+    float32_array5,
     float32_list,
     float64,
     float64_list,
@@ -91,6 +92,7 @@ __all__ = [
     "float32",
     "float32_array3",
     "float32_array4",
+    "float32_array5",
     "float32_list",
     "float64",
     "float64_list",
@@ -103,7 +105,7 @@ __all__ = [
     "unpack_input_conv_frame_request",
 ]
 
-__version__ = "0.1.0a0"
+__version__ = "0.1.0a1"
 
 
 def backend_info() -> dict:
