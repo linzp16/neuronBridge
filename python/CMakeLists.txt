@@ -40,12 +40,36 @@ add_custom_command(TARGET neuronbridge_python_core POST_BUILD
     VERBATIM)
 
 if(WIN32 AND NR_USING_BUNDLED_DEPENDENCIES)
+  # URDF-backed OuterDynamic models call pinocchio::urdf::buildModel.  On
+  # Windows this pulls in the parser DLL and its app-local dependency closure;
+  # keeping the list explicit prevents accidentally bundling the entire Conda
+  # distribution shipped with the Pinocchio compatibility package.
+  set(_nr_pinocchio_runtime_dll_names
+      pinocchio_default.dll
+      pinocchio_parsers.dll
+      boost_serialization.dll
+      boost_filesystem.dll
+      coal.dll
+      urdfdom_model.dll
+      console_bridge.dll
+      tinyxml2.dll
+      sdformat.dll
+      gz-math.dll
+      gz-utils.dll
+      dl.dll
+      assimp.dll
+      qhull_r.dll
+      octomap.dll
+      octomath.dll
+      zlib.dll)
+  set(_nr_pinocchio_runtime_dlls)
+  foreach(_nr_runtime_name IN LISTS _nr_pinocchio_runtime_dll_names)
+    list(APPEND _nr_pinocchio_runtime_dlls
+        "${NR_PINOCCHIO_PREFIX}/bin/${_nr_runtime_name}")
+  endforeach()
   add_custom_command(TARGET neuronbridge_python_core POST_BUILD
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-              "${NR_PINOCCHIO_PREFIX}/bin/pinocchio_default.dll"
-              "$<TARGET_FILE_DIR:neuronbridge_python_core>"
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-              "${NR_PINOCCHIO_PREFIX}/bin/boost_serialization.dll"
+              ${_nr_pinocchio_runtime_dlls}
               "$<TARGET_FILE_DIR:neuronbridge_python_core>"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
               "${NR_ZEROMQ_PREFIX}/bin/libzmq-mt-4_3_5.dll"
@@ -92,8 +116,7 @@ install(TARGETS neuronbridge_python_core
 
 if(WIN32 AND NR_USING_BUNDLED_DEPENDENCIES)
   install(FILES
-      "${NR_PINOCCHIO_PREFIX}/bin/pinocchio_default.dll"
-      "${NR_PINOCCHIO_PREFIX}/bin/boost_serialization.dll"
+      ${_nr_pinocchio_runtime_dlls}
       "${NR_ZEROMQ_PREFIX}/bin/libzmq-mt-4_3_5.dll"
       DESTINATION neuronbridge)
 endif()

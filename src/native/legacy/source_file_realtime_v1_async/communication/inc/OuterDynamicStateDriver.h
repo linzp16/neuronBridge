@@ -7,21 +7,21 @@
 #ifndef OUTERDYNAMICSTATEDRIVER_H
 #define OUTERDYNAMICSTATEDRIVER_H
 
-#include <array>
+#include <vector>
 
 struct OuterDynamicJointState {
     // Joint positions.
-    std::array<double, 2> q{ {0.0, 0.0} };
+    std::vector<double> q{0.0, 0.0};
     // Joint velocities.
-    std::array<double, 2> qv{ {0.0, 0.0} };
+    std::vector<double> qv{0.0, 0.0};
     // Joint accelerations.
-    std::array<double, 2> qdd{ {0.0, 0.0} };
+    std::vector<double> qdd{0.0, 0.0};
     // Desired joint positions.
-    std::array<double, 2> q_des{ {0.0, 0.0} };
+    std::vector<double> q_des{0.0, 0.0};
     // Desired joint velocities.
-    std::array<double, 2> qv_des{ {0.0, 0.0} };
+    std::vector<double> qv_des{0.0, 0.0};
     // Total torque command applied to each joint.
-    std::array<double, 2> tau_total{ {0.0, 0.0} };
+    std::vector<double> tau_total{0.0, 0.0};
 };
 
 class OuterDynamicStateDriver {

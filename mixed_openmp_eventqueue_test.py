@@ -107,8 +107,15 @@ def run_case(queue_type: str, queues: int, root: Path) -> dict:
 
 
 def compare(reference: dict, candidate: dict) -> dict:
-    fields = ("dense", "counter_a", "counter_b", "output_spikes")
+    fields = ("dense", "counter_a", "counter_b")
     values = {field: reference[field] == candidate[field] for field in fields}
+    # Parallel queues may append simultaneous spikes in a different order.
+    # Compare the event multiset while preserving time/neuron identity and
+    # duplicate events instead of treating list insertion order as semantics.
+    spike_key = lambda spike: (int(spike["time"]), int(spike["neuron_id"]))
+    values["output_spikes"] = sorted(map(spike_key, reference["output_spikes"])) == sorted(
+        map(spike_key, candidate["output_spikes"])
+    )
     return {**values, "pass": all(values.values())}
 
 

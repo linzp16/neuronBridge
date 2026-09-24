@@ -33,6 +33,7 @@ private:
     std::string filename_;
     // C file handle used by the writer.
     FILE* handler_;
+    bool header_written_;
 };
 
 #endif

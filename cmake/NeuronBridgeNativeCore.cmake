@@ -39,6 +39,7 @@ set(NR_OUTER_DYNAMIC_SOURCES
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/OuterDynamicSpikeCounter.cpp"
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/OuterDynamicSpikeBuffer.cpp"
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/PlanarArm2DOFPinocchio.cpp"
+    "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/ROKAEArm.cpp"
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/StrictMatlabPlanarArm2DOF.cpp"
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/StrictMatlabPlanarArm2DOFPinocchioPlant.cpp"
     "${NR_LEGACY_SRC_ROOT}/OuterDynamic/src/StrictMatlabPlanarArm2DOFOuterDynamic.cpp")

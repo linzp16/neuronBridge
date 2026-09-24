@@ -2,6 +2,7 @@
 
 #if SNN_WITH_PINOCCHIO
 #include "../source_file_realtime_v1_async/OuterDynamic/inc/PlanarArm2DOFPinocchio.h"
+#include "../source_file_realtime_v1_async/OuterDynamic/inc/ROKAEArm.h"
 #endif
 #include "../source_file_realtime_v1_async/OuterDynamic/inc/StrictMatlabPlanarArm2DOFOuterDynamic.h"
 #include "../source_file_realtime_v1_async/OuterDynamic/inc/OuterDynamicSpikeCounter.h"
@@ -29,6 +30,10 @@ OuterDynamicModel* CreatePlanarArm2DOFPinocchio(
     const OuterDynamicDescription& description) {
     return new PlanarArm2DOFPinocchio(description.update_timestep);
 }
+
+OuterDynamicModel* CreateROKAEArm(const OuterDynamicDescription& description) {
+    return new ROKAEArm(description.update_timestep);
+}
 #endif
 
 std::map<std::string, OuterDynamicCreator> BuildOuterDynamicRegistry() {
@@ -37,6 +42,7 @@ std::map<std::string, OuterDynamicCreator> BuildOuterDynamicRegistry() {
     // grow the public factory entry point into another long string branch.
 #if SNN_WITH_PINOCCHIO
     registry["PlanarArm2DOFPinocchio"] = &CreatePlanarArm2DOFPinocchio;
+    registry["ROKAE_Arm"] = &CreateROKAEArm;
 #endif
     registry["StrictMatlabPlanarArm2DOFOuterDynamic"] =
         &CreateStrictMatlabPlanarArm2DOFOuterDynamic;

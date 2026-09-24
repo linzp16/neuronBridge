@@ -22,7 +22,14 @@ def record(name, fn):
 def make_network(input_count=16, neuron_count=32, dense_name=None):
     network = nb.Network()
     network.add_layer(nb.NeuronLayer.input_spike(input_count))
-    network.add_layer(nb.NeuronLayer.lif_double(neuron_count, dense_name=dense_name, output=True, monitored=True))
+    network.add_layer(
+        nb.NeuronLayer.lif_double(
+            neuron_count,
+            dense_name=dense_name,
+            output=dense_name is None,
+            monitored=True,
+        )
+    )
     source = []
     target = []
     for s in range(input_count):
@@ -30,6 +37,17 @@ def make_network(input_count=16, neuron_count=32, dense_name=None):
             source.append(s)
             target.append(t)
     network.connect(nb.Connection(source=source, target=target, weight=0.25, delay=1))
+    if dense_name is not None:
+        output_neuron_id = input_count + neuron_count
+        network.add_layer(nb.NeuronLayer.lif_decay(1, output=True, monitored=True))
+        network.connect(
+            nb.Connection(
+                source=list(range(input_count, input_count + neuron_count)),
+                target=[output_neuron_id] * neuron_count,
+                weight=0.25,
+                delay=1,
+            )
+        )
     return network
 
 

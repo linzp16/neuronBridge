@@ -409,6 +409,37 @@ class OuterDynamic:
         )
 
     @classmethod
+    def rokae_arm(cls, *, urdf_path: str, **kwargs: Any) -> "OuterDynamic":
+        """Create the six-axis Pinocchio xMate plant registered as ``ROKAE_Arm``."""
+        parameters = dict(kwargs.pop("parameters", {}))
+        parameters["urdf_path"] = str(urdf_path)
+        string_keys = ("end_effector_frame", "trajectory_mode")
+        double_list_keys = (
+            "initial_q", "goal_q", "pd_kp", "pd_kd", "joint_damping", "torque_limit",
+        )
+        double_keys = (
+            "trajectory_start_s", "motion_duration_s", "dcn_torque_gain",
+        )
+        int_keys = ("spike_retention_steps",)
+        bool_keys = ("enable_pd_control",)
+        for key in string_keys:
+            if key in kwargs:
+                parameters[key] = str(kwargs.pop(key))
+        for key in double_list_keys:
+            if key in kwargs:
+                parameters[key] = float64_list(kwargs.pop(key))
+        for key in double_keys:
+            if key in kwargs:
+                parameters[key] = float64(kwargs.pop(key))
+        for key in int_keys:
+            if key in kwargs:
+                parameters[key] = int32(kwargs.pop(key))
+        for key in bool_keys:
+            if key in kwargs:
+                parameters[key] = bool(kwargs.pop(key))
+        return cls("ROKAE_Arm", parameters=parameters, **kwargs)
+
+    @classmethod
     def _planar_arm(cls, model: str, parameters: dict[str, ParameterValue], kwargs: dict[str, Any]) -> "OuterDynamic":
         double_list_keys = (
             "link_lengths",

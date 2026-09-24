@@ -39,7 +39,7 @@ bool OuterDynamicDebugSource::Capture(int time_step,
     const char* groups[] = {"q", "qv", "qdd", "q_des", "qv_des", "tau_total"};
     for (std::size_t component = 0; component < states.size(); ++component) {
         const OuterDynamicStateSnapshot& snapshot = states[component];
-        const std::array<double, 2>* component_values[] = {
+        const std::vector<double>* component_values[] = {
             &snapshot.state.q,
             &snapshot.state.qv,
             &snapshot.state.qdd,
@@ -48,14 +48,14 @@ bool OuterDynamicDebugSource::Capture(int time_step,
             &snapshot.state.tau_total,
         };
         for (int group = 0; group < 6; ++group) {
-            for (int index = 0; index < 2; ++index) {
+            for (std::size_t index = 0; index < component_values[group]->size(); ++index) {
                 DebugOuterDynamicStateRecord record;
                 record.time_step = time_step;
                 record.component_index = snapshot.component_index;
                 record.component_name = snapshot.component_name;
                 record.field_name = groups[group];
-                record.index = index;
-                record.value = (*component_values[group])[static_cast<std::size_t>(index)];
+                record.index = static_cast<int>(index);
+                record.value = (*component_values[group])[index];
                 frame->outer_dynamic_states.push_back(record);
             }
         }

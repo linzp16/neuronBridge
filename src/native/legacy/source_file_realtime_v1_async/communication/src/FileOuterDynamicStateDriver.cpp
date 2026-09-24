@@ -4,7 +4,7 @@
 #include <stdexcept>
 
 FileOuterDynamicStateDriver::FileOuterDynamicStateDriver(const char* file_name)
-    : filename_(file_name), handler_(NULL) {
+    : filename_(file_name), handler_(NULL), header_written_(false) {
     std::filesystem::path file_path(file_name);
     std::filesystem::path parent_path = file_path.parent_path();
     if (!parent_path.empty()) {
@@ -16,9 +16,6 @@ FileOuterDynamicStateDriver::FileOuterDynamicStateDriver(const char* file_name)
         throw std::runtime_error(std::string("Failed to open outer dynamic state file: ") + file_name);
     }
 
-    fprintf(
-        this->handler_,
-        "time_s\tq1\tq2\tqv1\tqv2\tqdd1\tqdd2\tqdes1\tqdes2\tqvdes1\tqvdes2\ttau1\ttau2\n");
 }
 
 FileOuterDynamicStateDriver::~FileOuterDynamicStateDriver() {
@@ -37,17 +34,33 @@ void FileOuterDynamicStateDriver::WriteJointState(
         if (this->handler_ == NULL) {
             throw std::runtime_error(std::string("Outer dynamic state file handle is null: ") + this->filename_);
         }
+        const std::size_t joint_count = state.q.size();
+        if (state.qv.size() != joint_count || state.qdd.size() != joint_count ||
+            state.q_des.size() != joint_count || state.qv_des.size() != joint_count ||
+            state.tau_total.size() != joint_count) {
+            throw std::runtime_error("Outer dynamic state fields have inconsistent joint counts.");
+        }
+        if (!this->header_written_) {
+            fprintf(this->handler_, "time_s");
+            const char* prefixes[] = {"q", "qv", "qdd", "qdes", "qvdes", "tau"};
+            for (const char* prefix : prefixes) {
+                for (std::size_t joint = 0; joint < joint_count; ++joint) {
+                    fprintf(this->handler_, "\t%s%zu", prefix, joint + 1);
+                }
+            }
+            fprintf(this->handler_, "\n");
+            this->header_written_ = true;
+        }
         const double time_seconds = static_cast<double>(time_step) * static_cast<double>(base_timestep_ms) * 0.001;
-        fprintf(
-            this->handler_,
-            "%.9f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\t%.12f\n",
-            time_seconds,
-            state.q[0], state.q[1],
-            state.qv[0], state.qv[1],
-            state.qdd[0], state.qdd[1],
-            state.q_des[0], state.q_des[1],
-            state.qv_des[0], state.qv_des[1],
-            state.tau_total[0], state.tau_total[1]);
+        fprintf(this->handler_, "%.9f", time_seconds);
+        const std::vector<double>* fields[] = {
+            &state.q, &state.qv, &state.qdd, &state.q_des, &state.qv_des, &state.tau_total};
+        for (const std::vector<double>* field : fields) {
+            for (double value : *field) {
+                fprintf(this->handler_, "\t%.12f", value);
+            }
+        }
+        fprintf(this->handler_, "\n");
     }
 }
 

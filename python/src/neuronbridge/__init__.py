@@ -557,15 +557,15 @@ class Simulation:
         """Return the latest state reported by every OuterDynamic instance."""
         return [dict(state) for state in self._native.outer_dynamic_states()]
 
-    def reset_outer_dynamic_state(self, name: str, q: list[float] | tuple[float, float], qd: list[float] | tuple[float, float]) -> "Simulation":
+    def reset_outer_dynamic_state(self, name: str, q: list[float] | tuple[float, ...], qd: list[float] | tuple[float, ...]) -> "Simulation":
         self._native.reset_outer_dynamic_state(name, list(q), list(qd))
         return self
 
     def set_outer_dynamic_desired_state(
         self,
         name: str,
-        q_des: list[float] | tuple[float, float],
-        qd_des: list[float] | tuple[float, float],
+        q_des: list[float] | tuple[float, ...],
+        qd_des: list[float] | tuple[float, ...],
     ) -> "Simulation":
         self._native.set_outer_dynamic_desired_state(name, list(q_des), list(qd_des))
         return self

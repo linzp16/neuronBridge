@@ -352,6 +352,31 @@ def test_planar_arm_2dof_convenience_types():
         assert native_data["outer_dynamics"][0]["parameters"]["trajectory_frequency_hz"] == 0.35
 
 
+def test_rokae_arm_convenience_types():
+    outer = nb.OuterDynamic.rokae_arm(
+        urdf_path=r"D:\models\xMateSR3C.urdf",
+        name="rokae",
+        end_effector_frame="xMateSR3C_link6",
+        trajectory_mode="smooth_step",
+        initial_q=[0.0] * 6,
+        goal_q=[0.0, 0.5, -1.0, 0.0, 0.5, 1.0],
+        pd_kp=[60.0] * 6,
+        pd_kd=[12.0] * 6,
+        motion_duration_s=5.0,
+        enable_pd_control=True,
+        update_timestep=2,
+        communication_interval=4,
+    )
+    data = outer.to_dict()
+    assert data["model"] == "ROKAE_Arm"
+    assert data["name"] == "rokae"
+    assert data["parameters"]["urdf_path"] == r"D:\models\xMateSR3C.urdf"
+    assert data["parameters"]["goal_q"] == [0.0, 0.5, -1.0, 0.0, 0.5, 1.0]
+    assert data["parameters"]["enable_pd_control"] is True
+    assert data["update_timestep"] == 2
+    assert data["communication_interval"] == 4
+
+
 def test_input_conv_v1_file_and_plaid_helpers():
     file_conv = nb.InputConv.v1_file(
         stimulus_file_path="stimulus.bin",

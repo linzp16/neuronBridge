@@ -22,6 +22,7 @@
 #include "source_file_realtime_v1_async/NeuralModel/inc/NeuronModel.h"
 #include "source_file_realtime_v1_async/Neuron/inc/Neuron.h"
 #include "source_file_realtime_v1_async/OuterDynamic/inc/PlanarArm2DOFPinocchio.h"
+#include "source_file_realtime_v1_async/OuterDynamic/inc/ROKAEArm.h"
 #include "source_file_realtime_v1_async/OuterDynamic/inc/StrictMatlabPlanarArm2DOFOuterDynamic.h"
 #include "source_file_realtime_v1_async/OuterDynamic/inc/OuterDynamicSpikeCounter.h"
 #include "source_file_realtime_v1_async/Simulation/inc/InputConvDescription.h"
@@ -770,9 +771,13 @@ public:
                                    const std::vector<double>& q,
                                    const std::vector<double>& qd) {
         EnsureSimulation();
+        OuterDynamicModel* model = FindMutableOuterDynamic(name);
+        if (auto* arm = dynamic_cast<ROKAEArm*>(model)) {
+            arm->ResetState(q, qd);
+            return;
+        }
         const std::array<double, 2> q_array = ToPairArray(q, "q");
         const std::array<double, 2> qd_array = ToPairArray(qd, "qd");
-        OuterDynamicModel* model = FindMutableOuterDynamic(name);
         if (auto* arm = dynamic_cast<StrictMatlabPlanarArm2DOFOuterDynamic*>(model)) {
             arm->ResetState(q_array, qd_array);
             return;
@@ -788,9 +793,13 @@ public:
                                          const std::vector<double>& q_des,
                                          const std::vector<double>& qd_des) {
         EnsureSimulation();
+        OuterDynamicModel* model = FindMutableOuterDynamic(name);
+        if (auto* arm = dynamic_cast<ROKAEArm*>(model)) {
+            arm->SetDesiredState(q_des, qd_des);
+            return;
+        }
         const std::array<double, 2> q_des_array = ToPairArray(q_des, "q_des");
         const std::array<double, 2> qd_des_array = ToPairArray(qd_des, "qd_des");
-        OuterDynamicModel* model = FindMutableOuterDynamic(name);
         if (auto* arm = dynamic_cast<StrictMatlabPlanarArm2DOFOuterDynamic*>(model)) {
             arm->SetDesiredState(q_des_array, qd_des_array);
             return;

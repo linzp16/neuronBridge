@@ -268,11 +268,11 @@ void StrictMatlabPlanarArm2DOFOuterDynamic::Update(int time, Simulation* simulat
     if (!this->started_) {
         const StrictMatlabPlanarArm2DOFState& arm_state = this->Arm().GetState();
         OuterDynamicJointState state;
-        state.q = arm_state.q;
-        state.qv = arm_state.qd;
-        state.qdd = arm_state.qdd;
-        state.q_des = arm_state.q_des;
-        state.qv_des = arm_state.qd_des;
+        state.q = {arm_state.q[0], arm_state.q[1]};
+        state.qv = {arm_state.qd[0], arm_state.qd[1]};
+        state.qdd = {arm_state.qdd[0], arm_state.qdd[1]};
+        state.q_des = {arm_state.q_des[0], arm_state.q_des[1]};
+        state.qv_des = {arm_state.qd_des[0], arm_state.qd_des[1]};
         state.tau_total = { 0.0, 0.0 };
         simulation->WriteOuterDynamicState(time, state, this);
         this->EncodeAndEmitStateFeedback(time, simulation, arm_state);
@@ -289,12 +289,12 @@ void StrictMatlabPlanarArm2DOFOuterDynamic::Update(int time, Simulation* simulat
 
     const StrictMatlabPlanarArm2DOFState& arm_state = this->Arm().GetState();
     OuterDynamicJointState state;
-    state.q = arm_state.q;
-    state.qv = arm_state.qd;
-    state.qdd = arm_state.qdd;
-    state.q_des = arm_state.q_des;
-    state.qv_des = arm_state.qd_des;
-    state.tau_total = tau;
+    state.q = {arm_state.q[0], arm_state.q[1]};
+    state.qv = {arm_state.qd[0], arm_state.qd[1]};
+    state.qdd = {arm_state.qdd[0], arm_state.qdd[1]};
+    state.q_des = {arm_state.q_des[0], arm_state.q_des[1]};
+    state.qv_des = {arm_state.qd_des[0], arm_state.qd_des[1]};
+    state.tau_total = {tau[0], tau[1]};
     simulation->WriteOuterDynamicState(time, state, this);
     this->EncodeAndEmitStateFeedback(time, simulation, arm_state);
     this->EncodeAndEmitErrorFeedback(time, simulation, arm_state);

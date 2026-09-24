@@ -29,7 +29,8 @@ def test_release_versions_are_consistent():
     )
     assert completed.returncode == 0, completed.stderr
     report = json.loads(completed.stdout)
-    assert set(report["versions"].values()) == {"0.1.0a0"}
+    expected_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    assert set(report["versions"].values()) == {expected_version}
     assert report["project_license_present"] is False
     assert report["public_release_ready"] is False
 
