@@ -105,7 +105,7 @@ __all__ = [
     "unpack_input_conv_frame_request",
 ]
 
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 
 def backend_info() -> dict:

@@ -1,4 +1,4 @@
-set(NR_VERSION_FULL "0.1.0a1" CACHE STRING "Full NeuronBridge release version")
+set(NR_VERSION_FULL "0.1.0a2" CACHE STRING "Full NeuronBridge release version")
 
 option(NR_ENABLE_PYTHON "Build the Python 3.12 bindings" ON)
 option(NR_ENABLE_CUDA "Build the CUDA backend" ON)
