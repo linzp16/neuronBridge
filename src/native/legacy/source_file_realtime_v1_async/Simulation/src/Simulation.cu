@@ -278,7 +278,7 @@ bool Simulation::ResetDenseSubnetwork(int subnetwork_index) {
 	return npgr::sim_support::ResetDenseSubnetwork(this, subnetwork_index);
 }
 
-void Simulation::EnableRealtime(int slotSteps, double maxAdvanceSeconds, float firstSection, float secondSection, float thirdSection) {
+void Simulation::EnableRealtime(int slotSteps, double maxAdvanceSeconds, float firstSection, float secondSection, float thirdSection, bool useExternalClock) {
 	// 开启实时限制
 	this->RealtimeEnabled = true;
 	//插入第一个Communication事件
@@ -288,6 +288,18 @@ void Simulation::EnableRealtime(int slotSteps, double maxAdvanceSeconds, float f
 	// 设置看门狗参数
 	this->RealTimeRestrictionObject->SetParameterWatchDog(slotSeconds, maxAdvanceSeconds, firstSection, secondSection, thirdSection);
 	this->RealTimeRestrictionObject->SetSleepPeriod(0.01);
+	if (useExternalClock) {
+		this->RealTimeRestrictionObject->EnableExternalClock(0.0);
+	}
+	else {
+		this->RealTimeRestrictionObject->DisableExternalClock();
+	}
+}
+
+void Simulation::SetRealtimeExternalClock(double externalTimeSeconds) {
+	if (this->RealTimeRestrictionObject != NULL) {
+		this->RealTimeRestrictionObject->SetExternalClock(externalTimeSeconds);
+	}
 }
 
 void Simulation::DisableRealtime() {
@@ -470,13 +482,19 @@ void Simulation::RunSimulationRealtime(int runsteps) {
 	int OpenmpIndex;
 	int time;
 	const int realtimeSlotSteps = this->RealtimeSlotSteps;
-	// 定义看门狗线程	std::thread watchdogThread;
-	// 阻塞等待看门狗线程启动	std::atomic<bool> watchdogStarted(false);
+	// Start supervision before processing the first slot, matching EDLUT's
+	// outer real-time kernel. Prime one slot so startup work is supervised too.
+	this->RealTimeRestrictionObject->StartWatchDog();
+	watchdogThread = std::thread([this]() {
+		this->RealTimeRestrictionObject->Watchdog();
+	});
+	watchdogStarted.store(true);
+	this->RealTimeRestrictionObject->NextStepWatchDog();
 
 #pragma omp parallel num_threads(this->NumberOfQueue) if(this->NumberOfQueue > 1) private(newEvent, OpenmpIndex, time)
 	{
 		OpenmpIndex = omp_get_thread_num();
-		int nextRealtimeBoundary = realtimeSlotSteps;
+		int nextRealtimeBoundary = this->currenttime[OpenmpIndex] + realtimeSlotSteps;
 		time = 0;
 		if (NumberOfGPU > 0) {
 			this->SetOpenMPThreadToGPU(OpenmpIndex);
@@ -522,15 +540,6 @@ void Simulation::RunSimulationRealtime(int runsteps) {
 
 			if (OpenmpIndex == 0) {
 				while (this->currenttime[0] >= nextRealtimeBoundary) {
-					//判断是否需要启动看门狗线程
-					if (!watchdogStarted.load()) {
-						this->RealTimeRestrictionObject->StartWatchDog();
-						watchdogThread = std::thread([this]() {
-							this->RealTimeRestrictionObject->Watchdog();
-						});
-						//标记看门狗已启动
-						watchdogStarted.store(true);
-					}
 					this->RealTimeRestrictionObject->NextStepWatchDog();
 					nextRealtimeBoundary += realtimeSlotSteps;
 				}

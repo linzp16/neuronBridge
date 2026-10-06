@@ -4,6 +4,7 @@
 #include <array>
 #include <boost/any.hpp>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -241,14 +242,24 @@ public:
                          double max_advance_seconds,
                          float first_section,
                          float second_section,
-                         float third_section) {
+                         float third_section,
+                         bool use_external_clock) {
         EnsureSimulation();
         simulation_->EnableRealtime(
             slot_steps,
             max_advance_seconds,
             first_section,
             second_section,
-            third_section);
+            third_section,
+            use_external_clock);
+    }
+
+    void set_realtime_external_clock(double external_time_seconds) {
+        EnsureSimulation();
+        if (!std::isfinite(external_time_seconds)) {
+            throw py::value_error("external realtime clock must be finite");
+        }
+        simulation_->SetRealtimeExternalClock(external_time_seconds);
     }
 
     void disable_realtime() {
@@ -1866,7 +1877,11 @@ PYBIND11_MODULE(_core, module) {
              py::arg("max_advance_seconds"),
              py::arg("first_section"),
              py::arg("second_section"),
-             py::arg("third_section"))
+             py::arg("third_section"),
+             py::arg("use_external_clock") = false)
+        .def("set_realtime_external_clock",
+             &NativeSimulation::set_realtime_external_clock,
+             py::arg("external_time_seconds"))
         .def("disable_realtime", &NativeSimulation::disable_realtime)
         .def("run_realtime", &NativeSimulation::run_realtime, py::arg("steps"))
         .def("reset_bench_profiling", &NativeSimulation::reset_bench_profiling)

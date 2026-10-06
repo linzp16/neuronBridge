@@ -390,7 +390,10 @@ public:
                         double maxAdvanceSeconds,
                         float firstSection,
                         float secondSection,
-                        float thirdSection);
+                        float thirdSection,
+                        bool useExternalClock = false);
+    // Updates the EDLUT-compatible external clock used by the watchdog.
+    void SetRealtimeExternalClock(double externalTimeSeconds);
     // Disables real-time pacing.
     void DisableRealtime();
     // Enables or disables printing of simulation time progress.

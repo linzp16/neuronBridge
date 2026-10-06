@@ -20,10 +20,15 @@ public:
     void SetParameterWatchDog(double new_simulation_step_size, double new_max_simulation_time_in_advance,
         float new_first_section, float new_second_section, float new_third_section);
     void NextStepWatchDog();
+    void NextStepWatchDog(double new_external_clock);
     void StartWatchDog();
     void StopWatchDog();
     void Watchdog();
     void SetSleepPeriod(double new_sleep_period);
+    void EnableExternalClock(double initial_clock = 0.0);
+    void DisableExternalClock();
+    void SetExternalClock(double new_external_clock);
+    bool IsExternalClockEnabled() const;
 
     RealTimeRestrictionLevel GetRestrictionLevel() const;
     std::array<unsigned long long, 5> GetRestrictionLevelCounts() const;
@@ -31,11 +36,12 @@ public:
 
 private:
     void ResetClock();
+    double GetSupervisionTime() const;
     void UpdateRestrictionLevel(double current_time);
 
     double simulation_step_size;
     double max_simulation_time_in_advance;
-    double simulation_time;
+    std::atomic<double> simulation_time;
     double first_section;
     double second_section;
     double third_section;
@@ -43,6 +49,10 @@ private:
     double second_gap_time;
     double third_gap_time;
     double sleep_period;
+
+    std::atomic<bool> use_external_clock;
+    std::atomic<double> external_clock;
+    std::atomic<double> external_clock_wall_time;
 
     std::atomic<bool> stop_requested;
     std::atomic<bool> started;

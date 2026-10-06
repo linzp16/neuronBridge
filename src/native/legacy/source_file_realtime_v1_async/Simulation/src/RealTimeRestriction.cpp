@@ -1,6 +1,6 @@
 ﻿#include "../source_file_realtime_v1_async/Simulation/inc/RealTimeRestriction.h"
 #include <chrono>
-#include <iostream>
+#include <algorithm>
 #include <thread>
 
 RealTimeRestriction::RealTimeRestriction()
@@ -14,6 +14,9 @@ RealTimeRestriction::RealTimeRestriction()
       second_gap_time(0.0),
       third_gap_time(0.0),
       sleep_period(0.01),
+      use_external_clock(false),
+      external_clock(0.0),
+      external_clock_wall_time(0.0),
       stop_requested(false),
       started(false),
       primed(false),
@@ -27,7 +30,7 @@ void RealTimeRestriction::SetParameterWatchDog(double new_simulation_step_size, 
     simulation_step_size = (new_simulation_step_size > 0.0) ? new_simulation_step_size : 0.0;
     max_simulation_time_in_advance =
         (new_max_simulation_time_in_advance >= simulation_step_size) ? new_max_simulation_time_in_advance : simulation_step_size;
-    simulation_time = 0.0;
+    simulation_time.store(0.0);
 
     third_section = (new_third_section >= 0.0f && new_third_section <= 1.0f) ? new_third_section : 1.0f;
     second_section = (new_second_section >= 0.0f && new_second_section <= third_section) ? new_second_section : third_section;
@@ -46,15 +49,20 @@ void RealTimeRestriction::SetParameterWatchDog(double new_simulation_step_size, 
 }
 
 void RealTimeRestriction::NextStepWatchDog() {
-    simulation_time += simulation_step_size;
+    simulation_time.store(simulation_time.load() + simulation_step_size);
     primed.store(true);
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> elapsed = now - start_time;
-    UpdateRestrictionLevel(elapsed.count());
+    UpdateRestrictionLevel(GetSupervisionTime());
+}
+
+void RealTimeRestriction::NextStepWatchDog(double new_external_clock) {
+    SetExternalClock(new_external_clock);
+    NextStepWatchDog();
 }
 
 void RealTimeRestriction::StartWatchDog() {
     ResetClock();
+    simulation_time.store(0.0);
+    external_clock_wall_time.store(0.0);
     started.store(true);
     stop_requested.store(false);
     primed.store(false);
@@ -80,9 +88,7 @@ void RealTimeRestriction::Watchdog() {
             continue;
         }
 
-        const auto now = std::chrono::steady_clock::now();
-        const std::chrono::duration<double> elapsed = now - start_time;
-        UpdateRestrictionLevel(elapsed.count());
+        UpdateRestrictionLevel(GetSupervisionTime());
 
         if (sleep_period > 0.0) {
             std::this_thread::sleep_for(std::chrono::duration<double>(sleep_period));
@@ -92,6 +98,27 @@ void RealTimeRestriction::Watchdog() {
 
 void RealTimeRestriction::SetSleepPeriod(double new_sleep_period) {
     sleep_period = (new_sleep_period >= 0.0) ? new_sleep_period : 0.0;
+}
+
+void RealTimeRestriction::EnableExternalClock(double initial_clock) {
+    use_external_clock.store(true);
+    external_clock.store(std::max(0.0, initial_clock));
+    const auto now = std::chrono::steady_clock::now();
+    external_clock_wall_time.store(std::chrono::duration<double>(now - start_time).count());
+}
+
+void RealTimeRestriction::DisableExternalClock() {
+    use_external_clock.store(false);
+}
+
+void RealTimeRestriction::SetExternalClock(double new_external_clock) {
+    external_clock.store(std::max(0.0, new_external_clock));
+    const auto now = std::chrono::steady_clock::now();
+    external_clock_wall_time.store(std::chrono::duration<double>(now - start_time).count());
+}
+
+bool RealTimeRestriction::IsExternalClockEnabled() const {
+    return use_external_clock.load();
 }
 
 RealTimeRestrictionLevel RealTimeRestriction::GetRestrictionLevel() const {
@@ -116,37 +143,46 @@ void RealTimeRestriction::ResetClock() {
     start_time = std::chrono::steady_clock::now();
 }
 
+double RealTimeRestriction::GetSupervisionTime() const {
+    const auto now = std::chrono::steady_clock::now();
+    const double elapsed = std::chrono::duration<double>(now - start_time).count();
+    if (!use_external_clock.load()) {
+        return elapsed;
+    }
+
+    // Match EDLUT's external-clock behavior: use the most recently supplied
+    // external time and extrapolate it with the monotonic wall clock until the
+    // next external update arrives.
+    const double elapsed_since_update = std::max(0.0, elapsed - external_clock_wall_time.load());
+    return external_clock.load() + elapsed_since_update;
+}
+
 void RealTimeRestriction::UpdateRestrictionLevel(double current_time) {
-    const double gap = simulation_time - current_time;
+    const double gap = simulation_time.load() - current_time;
     RealTimeRestrictionLevel new_level = ALL_EVENTS_ENABLED;
     if (gap >= max_simulation_time_in_advance) {
         new_level = SIMULATION_TOO_FAST;
         restriction_level.store(new_level);
         restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
-        std::cout << "Simulation is too fast!" << std::endl;
     }
     else if (gap > first_gap_time) {
         new_level = ALL_EVENTS_ENABLED;
         restriction_level.store(new_level);
         restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
-        std::cout << "Simulation is running in real time." << std::endl;
     }
     else if (gap > second_gap_time) {
         new_level = LEARNING_RULES_DISABLED;
         restriction_level.store(new_level);
         restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
-        std::cout << "Learning rules are disabled." << std::endl;
     }
-    else if (gap > 0) {
+    else if (gap > third_gap_time) {
         new_level = SPIKES_DISABLED;
         restriction_level.store(new_level);
         restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
-        std::cout << "Spikes are disabled." << std::endl;
     }
     else {
         new_level = ALL_UNESSENTIAL_EVENTS_DISABLED;
         restriction_level.store(new_level);
         restriction_level_counts[static_cast<std::size_t>(new_level)].fetch_add(1, std::memory_order_relaxed);
-        std::cout << "All unessential events are disabled." << std::endl;
     }
 }

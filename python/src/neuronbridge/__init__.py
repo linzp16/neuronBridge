@@ -200,6 +200,7 @@ class Simulation:
         first_section: float = 0.25,
         second_section: float = 0.5,
         third_section: float = 0.75,
+        use_external_clock: bool = False,
     ) -> "Simulation":
         """Temporarily deferred experimental API; not in the stable support scope.
 
@@ -207,7 +208,9 @@ class Simulation:
 
         ``slot_steps=0`` lets the native runtime use the configured communication
         interval.  The section values control how aggressively non-essential
-        events are restricted when simulation time approaches wall time.
+        events are restricted when simulation time approaches wall time. Set
+        ``use_external_clock=True`` to supervise against an external elapsed-time
+        clock, such as a robot or simulator clock starting at zero.
         """
         self._native.enable_realtime(
             int(slot_steps),
@@ -215,7 +218,13 @@ class Simulation:
             float(first_section),
             float(second_section),
             float(third_section),
+            bool(use_external_clock),
         )
+        return self
+
+    def set_realtime_external_clock(self, external_time_seconds: float) -> "Simulation":
+        """Update the EDLUT-compatible elapsed-time clock, in seconds."""
+        self._native.set_realtime_external_clock(float(external_time_seconds))
         return self
 
     def disable_realtime(self) -> "Simulation":

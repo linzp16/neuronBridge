@@ -107,12 +107,17 @@ int main() {
     }
 
     const auto* history0 = runtime.firing_table().HistoryAtTime(0);
-    if (history0 == nullptr || history0->firing_ids != std::vector<int>{0}) {
-        std::cerr << "result=FAIL reason=t0 firing baseline mismatch\n";
+    const auto* history1 = runtime.firing_table().HistoryAtTime(1);
+    if (history0 == nullptr || !history0->firing_ids.empty()) {
+        std::cerr << "result=FAIL reason=t0 must preserve the interface-neuron delay\n";
+        return EXIT_FAILURE;
+    }
+    if (history1 == nullptr || history1->firing_ids != std::vector<int>{0}) {
+        std::cerr << "result=FAIL reason=t1 firing baseline mismatch\n";
         return EXIT_FAILURE;
     }
     std::cout << "backend=DenseGpu steps=2 firing_events="
-              << history0->firing_ids.size()
+              << history1->firing_ids.size()
               << " output_spikes=" << output_spikes << "\nresult=PASS\n";
     return EXIT_SUCCESS;
 }
