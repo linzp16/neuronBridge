@@ -416,11 +416,19 @@ class OuterDynamic:
         string_keys = ("end_effector_frame", "trajectory_mode")
         double_list_keys = (
             "initial_q", "goal_q", "pd_kp", "pd_kd", "joint_damping", "torque_limit",
+            "angle_min_deg", "angle_max_deg", "velocity_min_deg_s", "velocity_range_deg_s",
+            "cf_angle_norm_deg", "cf_velocity_norm_deg_s",
         )
         double_keys = (
             "trajectory_start_s", "motion_duration_s", "dcn_torque_gain",
+            "cf_mix_position", "spike_cf_max",
         )
-        int_keys = ("spike_retention_steps",)
+        int_keys = (
+            "spike_retention_steps", "state_feedback_delay_steps",
+            "state_feedback_repeats_per_update", "state_feedback_repeat_period_steps",
+            "error_feedback_delay_steps", "error_feedback_window_steps",
+            "error_feedback_sample_count", "error_feedback_seed",
+        )
         bool_keys = ("enable_pd_control",)
         for key in string_keys:
             if key in kwargs:

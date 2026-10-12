@@ -40,8 +40,10 @@ if (-not $SkipRepair) {
 }
 
 $pythonProject = Join-Path $root "python"
+$releaseVersion = (Get-Content -LiteralPath (Join-Path $root "VERSION") -Raw).Trim()
 $pythonCmake = $PythonExe.Replace('\', '/')
 $cmakeArgs = @(
+    "-DNR_VERSION_FULL=$releaseVersion",
     "-DNR_ENABLE_PYTHON=ON",
     "-DNR_ENABLE_CUDA=ON",
     "-DNR_ENABLE_MODEL_CODEGEN=ON",

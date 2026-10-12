@@ -58,6 +58,17 @@ std::vector<double> ToVector(const Eigen::VectorXd& values) {
 
 constexpr double kPi = 3.14159265358979323846;
 
+double RadToDeg(double radians) {
+    return radians * 180.0 / kPi;
+}
+
+double LinearSaturating(double max_abs, double value) {
+    if (max_abs <= 0.0) {
+        return 0.0;
+    }
+    return std::max(0.0, std::min(1.0, value / max_abs));
+}
+
 }  // namespace
 
 ROKAEArm::ROKAEArm(int timestep_size)
@@ -72,6 +83,15 @@ ROKAEArm::ROKAEArm(int timestep_size)
       motion_duration_s_(5.0),
       dcn_torque_gain_(0.0025),
       spike_retention_steps_(256),
+      state_feedback_delay_steps_(1),
+      state_feedback_repeats_(1),
+      state_feedback_repeat_period_steps_(1),
+      error_feedback_delay_steps_(0),
+      error_feedback_window_steps_(1),
+      error_feedback_sample_count_(50),
+      cf_mix_position_(0.8),
+      spike_cf_max_(15.0),
+      error_feedback_rng_(17u),
       enable_pd_control_(true),
       external_desired_state_enabled_(false),
       started_(false) {}
@@ -137,6 +157,34 @@ void ROKAEArm::Initialize(const OuterDynamicDescription& description, Simulation
     tau_total_ = Eigen::VectorXd::Zero(model_.nv);
     torque_limit_ = GetVector(description.ModelParameter, "torque_limit", model_.effortLimit);
 
+    Eigen::VectorXd angle_min_default(model_.nv);
+    Eigen::VectorXd angle_max_default(model_.nv);
+    Eigen::VectorXd velocity_min_default(model_.nv);
+    Eigen::VectorXd velocity_range_default(model_.nv);
+    Eigen::VectorXd cf_angle_default(model_.nv);
+    Eigen::VectorXd cf_velocity_default(model_.nv);
+    for (int joint = 0; joint < joint_count_; ++joint) {
+        angle_min_default(joint) = RadToDeg(model_.lowerPositionLimit(joint));
+        angle_max_default(joint) = RadToDeg(model_.upperPositionLimit(joint));
+        const double velocity_limit_deg = RadToDeg(model_.velocityLimit(joint));
+        velocity_min_default(joint) = -velocity_limit_deg;
+        velocity_range_default(joint) = 2.0 * velocity_limit_deg;
+        cf_angle_default(joint) = std::max(1.0, 0.5 * (angle_max_default(joint) - angle_min_default(joint)));
+        cf_velocity_default(joint) = std::max(1.0, velocity_limit_deg);
+    }
+    const Eigen::VectorXd angle_min = GetVector(description.ModelParameter, "angle_min_deg", angle_min_default);
+    const Eigen::VectorXd angle_max = GetVector(description.ModelParameter, "angle_max_deg", angle_max_default);
+    const Eigen::VectorXd velocity_min = GetVector(description.ModelParameter, "velocity_min_deg_s", velocity_min_default);
+    const Eigen::VectorXd velocity_range = GetVector(description.ModelParameter, "velocity_range_deg_s", velocity_range_default);
+    const Eigen::VectorXd cf_angle_norm = GetVector(description.ModelParameter, "cf_angle_norm_deg", cf_angle_default);
+    const Eigen::VectorXd cf_velocity_norm = GetVector(description.ModelParameter, "cf_velocity_norm_deg_s", cf_velocity_default);
+    angle_min_deg_ = ToVector(angle_min);
+    angle_max_deg_ = ToVector(angle_max);
+    velocity_min_deg_ = ToVector(velocity_min);
+    velocity_max_deg_ = ToVector(velocity_min + velocity_range);
+    cf_angle_norm_deg_ = ToVector(cf_angle_norm);
+    cf_velocity_norm_deg_ = ToVector(cf_velocity_norm);
+
     trajectory_mode_ = GetOrDefault<std::string>(description.ModelParameter, "trajectory_mode", trajectory_mode_);
     if (trajectory_mode_ != "hold" && trajectory_mode_ != "smooth_step") {
         throw std::runtime_error("ROKAE_Arm trajectory_mode must be 'hold' or 'smooth_step'.");
@@ -149,6 +197,24 @@ void ROKAEArm::Initialize(const OuterDynamicDescription& description, Simulation
     dcn_torque_gain_ = GetOrDefault<double>(description.ModelParameter, "dcn_torque_gain", dcn_torque_gain_);
     spike_retention_steps_ = std::max(
         1, GetOrDefault<int>(description.ModelParameter, "spike_retention_steps", spike_retention_steps_));
+    state_feedback_delay_steps_ = std::max(
+        0, GetOrDefault<int>(description.ModelParameter, "state_feedback_delay_steps", state_feedback_delay_steps_));
+    state_feedback_repeats_ = std::max(
+        1, GetOrDefault<int>(description.ModelParameter, "state_feedback_repeats_per_update", state_feedback_repeats_));
+    state_feedback_repeat_period_steps_ = std::max(
+        1, GetOrDefault<int>(description.ModelParameter, "state_feedback_repeat_period_steps", state_feedback_repeat_period_steps_));
+    error_feedback_delay_steps_ = std::max(
+        0, GetOrDefault<int>(description.ModelParameter, "error_feedback_delay_steps", error_feedback_delay_steps_));
+    error_feedback_window_steps_ = std::max(
+        1, GetOrDefault<int>(description.ModelParameter, "error_feedback_window_steps", getCommunicationInterval()));
+    error_feedback_sample_count_ = std::max(
+        1, GetOrDefault<int>(description.ModelParameter, "error_feedback_sample_count", error_feedback_sample_count_));
+    cf_mix_position_ = std::clamp(
+        GetOrDefault<double>(description.ModelParameter, "cf_mix_position", cf_mix_position_), 0.0, 1.0);
+    spike_cf_max_ = std::max(
+        0.0, GetOrDefault<double>(description.ModelParameter, "spike_cf_max", spike_cf_max_));
+    error_feedback_rng_.seed(static_cast<std::mt19937::result_type>(
+        GetOrDefault<int>(description.ModelParameter, "error_feedback_seed", 17)));
     enable_pd_control_ = GetOrDefault<bool>(description.ModelParameter, "enable_pd_control", enable_pd_control_);
 
     ClampState();
@@ -180,11 +246,25 @@ void ROKAEArm::Initialize(const OuterDynamicDescription& description, Simulation
     if (simulation->outer_dynamic_spike_buffer != nullptr) {
         simulation->outer_dynamic_spike_buffer->RegisterWatchedNeurons(watched_neurons);
     }
-    if (!description.state_feedback_product.neuron_indices_by_joint.empty() ||
-        !description.state_feedback_single.neuron_indices_by_joint_variable.empty() ||
-        !description.error_feedback_product.neuron_indices_by_joint.empty() ||
+    state_feedback_product_ = description.state_feedback_product;
+    state_feedback_single_ = description.state_feedback_single;
+    if (!description.error_feedback_product.neuron_indices_by_joint.empty() ||
         !description.error_feedback_single.neuron_indices_by_joint_variable.empty()) {
-        throw std::runtime_error("ROKAE_Arm neural feedback encoding is not configured; read state through outer_dynamic_state(s). ");
+        throw std::runtime_error("ROKAE_Arm supports signed CF mappings instead of generic error feedback encodings.");
+    }
+    const bool has_cf_mapping =
+        !description.cf_positive_neuron_indices_by_joint.empty() ||
+        !description.cf_negative_neuron_indices_by_joint.empty();
+    if (has_cf_mapping &&
+        (description.cf_positive_neuron_indices_by_joint.size() != static_cast<std::size_t>(joint_count_) ||
+         description.cf_negative_neuron_indices_by_joint.size() != static_cast<std::size_t>(joint_count_))) {
+        throw std::runtime_error("ROKAE_Arm CF positive/negative mappings must each contain 6 joints.");
+    }
+    cf_positive_neurons_.assign(static_cast<std::size_t>(joint_count_), std::vector<int>());
+    cf_negative_neurons_.assign(static_cast<std::size_t>(joint_count_), std::vector<int>());
+    if (has_cf_mapping) {
+        cf_positive_neurons_ = description.cf_positive_neuron_indices_by_joint;
+        cf_negative_neurons_ = description.cf_negative_neuron_indices_by_joint;
     }
     external_desired_state_enabled_ = false;
     started_ = false;
@@ -202,6 +282,7 @@ void ROKAEArm::Update(int time, Simulation* simulation) {
     }
     if (!started_) {
         WriteState(time, simulation);
+        EncodeAndEmitStateFeedback(time, simulation);
         started_ = true;
         return;
     }
@@ -220,6 +301,8 @@ void ROKAEArm::Update(int time, Simulation* simulation) {
     }
     Integrate(step_seconds);
     WriteState(time, simulation);
+    EncodeAndEmitStateFeedback(time, simulation);
+    EncodeAndEmitErrorFeedback(time, simulation);
     if (simulation->outer_dynamic_spike_buffer != nullptr) {
         simulation->outer_dynamic_spike_buffer->DiscardOlderThan(std::max(0, time - spike_retention_steps_));
     }
@@ -299,6 +382,173 @@ void ROKAEArm::WriteState(int time, Simulation* simulation) const {
     state.qv_des = ToVector(v_des_);
     state.tau_total = ToVector(tau_total_);
     simulation->WriteOuterDynamicState(time, state, const_cast<ROKAEArm*>(this));
+}
+
+void ROKAEArm::EncodeAndEmitStateFeedback(int time, Simulation* simulation) {
+    if (simulation == nullptr) {
+        return;
+    }
+    const int emit_time = time + state_feedback_delay_steps_;
+    if (!state_feedback_product_.neuron_indices_by_joint.empty()) {
+        if (state_feedback_product_.neuron_indices_by_joint.size() != static_cast<std::size_t>(joint_count_) ||
+            state_feedback_product_.bins.size() != 4) {
+            throw std::runtime_error("ROKAE_Arm state_feedback_product expects 6 joints and 4 state bins.");
+        }
+        const int product_size = state_feedback_product_.bins[0] * state_feedback_product_.bins[1] *
+                                 state_feedback_product_.bins[2] * state_feedback_product_.bins[3];
+        for (int joint = 0; joint < joint_count_; ++joint) {
+            const std::vector<int>& targets =
+                state_feedback_product_.neuron_indices_by_joint[static_cast<std::size_t>(joint)];
+            if (static_cast<int>(targets.size()) != product_size) {
+                throw std::runtime_error("ROKAE_Arm state_feedback_product target size does not match product bins.");
+            }
+            const int index = EncodeStateProductIndex(joint);
+            for (int repeat = 0; repeat < state_feedback_repeats_; ++repeat) {
+                EmitSpike(simulation, targets[static_cast<std::size_t>(index)],
+                          emit_time + repeat * state_feedback_repeat_period_steps_);
+            }
+        }
+    }
+
+    if (!state_feedback_single_.neuron_indices_by_joint_variable.empty()) {
+        if (state_feedback_single_.neuron_indices_by_joint_variable.size() != static_cast<std::size_t>(joint_count_) ||
+            state_feedback_single_.bins.size() != 4) {
+            throw std::runtime_error("ROKAE_Arm state_feedback_single expects 6 joints and 4 state variables.");
+        }
+        for (int joint = 0; joint < joint_count_; ++joint) {
+            const std::vector<double> values = {
+                RadToDeg(q_des_(joint)), RadToDeg(q_(joint)), RadToDeg(v_des_(joint)), RadToDeg(v_(joint))};
+            const std::vector<double> mins = {
+                angle_min_deg_[joint], angle_min_deg_[joint], velocity_min_deg_[joint], velocity_min_deg_[joint]};
+            const std::vector<double> maxs = {
+                angle_max_deg_[joint], angle_max_deg_[joint], velocity_max_deg_[joint], velocity_max_deg_[joint]};
+            const std::vector<std::vector<int> >& targets =
+                state_feedback_single_.neuron_indices_by_joint_variable[static_cast<std::size_t>(joint)];
+            if (targets.size() != 4) {
+                throw std::runtime_error("ROKAE_Arm state_feedback_single target variable count must be 4.");
+            }
+            for (int variable = 0; variable < 4; ++variable) {
+                const int bin_count = state_feedback_single_.bins[static_cast<std::size_t>(variable)];
+                if (bin_count <= 0 ||
+                    static_cast<int>(targets[static_cast<std::size_t>(variable)].size()) != bin_count) {
+                    throw std::runtime_error("ROKAE_Arm state_feedback_single target bin count is invalid.");
+                }
+                const int bin = EncodeUniformBin(values[variable], mins[variable], maxs[variable], bin_count);
+                for (int repeat = 0; repeat < state_feedback_repeats_; ++repeat) {
+                    EmitSpike(simulation,
+                              targets[static_cast<std::size_t>(variable)][static_cast<std::size_t>(bin)],
+                              emit_time + repeat * state_feedback_repeat_period_steps_);
+                }
+            }
+        }
+    }
+}
+
+void ROKAEArm::EncodeAndEmitErrorFeedback(int time, Simulation* simulation) {
+    if (simulation == nullptr || cf_positive_neurons_.empty()) {
+        return;
+    }
+    for (int joint = 0; joint < joint_count_; ++joint) {
+        const std::vector<int>& positive = cf_positive_neurons_[static_cast<std::size_t>(joint)];
+        const std::vector<int>& negative = cf_negative_neurons_[static_cast<std::size_t>(joint)];
+        if (positive.empty() && negative.empty()) {
+            continue;
+        }
+        if (positive.empty() || positive.size() != negative.size()) {
+            throw std::runtime_error("ROKAE_Arm error feedback requires matched positive/negative CF targets per joint.");
+        }
+        const double position_error = RadToDeg(q_des_(joint) - q_(joint));
+        const double velocity_error = RadToDeg(v_des_(joint) - v_(joint));
+        double normalized_angle = LinearSaturating(cf_angle_norm_deg_[joint], std::fabs(position_error));
+        double normalized_velocity = LinearSaturating(cf_velocity_norm_deg_[joint], std::fabs(velocity_error));
+        normalized_angle = position_error < 0.0 ? -normalized_angle : normalized_angle;
+        normalized_velocity = velocity_error < 0.0 ? -normalized_velocity : normalized_velocity;
+        const double mixed_error =
+            cf_mix_position_ * normalized_angle + (1.0 - cf_mix_position_) * normalized_velocity;
+        const int count = static_cast<int>(std::llround(
+            std::fabs(spike_cf_max_ * static_cast<double>(positive.size()) /
+                      static_cast<double>(error_feedback_sample_count_) * mixed_error)));
+        EmitBinaryCfSpikes(count,
+                           mixed_error > 0.0 ? positive : negative,
+                           time + error_feedback_delay_steps_,
+                           error_feedback_window_steps_,
+                           simulation);
+    }
+}
+
+void ROKAEArm::EmitBinaryCfSpikes(int count,
+                                  const std::vector<int>& target_neurons,
+                                  int base_time,
+                                  int window_steps,
+                                  Simulation* simulation) {
+    if (count <= 0 || target_neurons.empty() || window_steps <= 0 || simulation == nullptr) {
+        return;
+    }
+    std::vector<unsigned char> bitmap(
+        target_neurons.size() * static_cast<std::size_t>(window_steps), 0u);
+    std::uniform_int_distribution<int> neuron_dist(0, static_cast<int>(target_neurons.size()) - 1);
+    std::uniform_int_distribution<int> time_dist(0, window_steps - 1);
+    for (int event = 0; event < count; ++event) {
+        const int neuron = neuron_dist(error_feedback_rng_);
+        const int local_time = time_dist(error_feedback_rng_);
+        bitmap[static_cast<std::size_t>(neuron) * static_cast<std::size_t>(window_steps) +
+               static_cast<std::size_t>(local_time)] = 1u;
+    }
+    for (std::size_t neuron = 0; neuron < target_neurons.size(); ++neuron) {
+        for (int local_time = 0; local_time < window_steps; ++local_time) {
+            if (bitmap[neuron * static_cast<std::size_t>(window_steps) +
+                       static_cast<std::size_t>(local_time)] != 0u) {
+                EmitSpike(simulation, target_neurons[neuron], base_time + 1 + local_time);
+            }
+        }
+    }
+}
+
+int ROKAEArm::EncodeStateProductIndex(int joint) const {
+    const std::vector<double> values = {
+        RadToDeg(q_des_(joint)), RadToDeg(q_(joint)), RadToDeg(v_des_(joint)), RadToDeg(v_(joint))};
+    const std::vector<double> mins = {
+        angle_min_deg_[joint], angle_min_deg_[joint], velocity_min_deg_[joint], velocity_min_deg_[joint]};
+    const std::vector<double> maxs = {
+        angle_max_deg_[joint], angle_max_deg_[joint], velocity_max_deg_[joint], velocity_max_deg_[joint]};
+    std::vector<int> indices;
+    indices.reserve(4);
+    for (int variable = 0; variable < 4; ++variable) {
+        indices.push_back(EncodeUniformBin(
+            values[variable], mins[variable], maxs[variable],
+            state_feedback_product_.bins[static_cast<std::size_t>(variable)]));
+    }
+    return EncodeProductIndex(indices, state_feedback_product_.bins);
+}
+
+int ROKAEArm::EncodeUniformBin(double value, double min_value, double max_value, int bin_count) const {
+    if (bin_count <= 1 || max_value <= min_value) {
+        return 0;
+    }
+    const double ratio = (std::clamp(value, min_value, max_value) - min_value) / (max_value - min_value);
+    return std::clamp(static_cast<int>(std::floor(ratio * static_cast<double>(bin_count))), 0, bin_count - 1);
+}
+
+int ROKAEArm::EncodeProductIndex(const std::vector<int>& indices, const std::vector<int>& bins) const {
+    if (indices.size() != bins.size()) {
+        throw std::runtime_error("ROKAE_Arm product index dimensions do not match bins.");
+    }
+    int index = 0;
+    for (std::size_t dimension = 0; dimension < indices.size(); ++dimension) {
+        if (bins[dimension] <= 0 || indices[dimension] < 0 || indices[dimension] >= bins[dimension]) {
+            throw std::runtime_error("ROKAE_Arm product index contains an invalid bin.");
+        }
+        index = index * bins[dimension] + indices[dimension];
+    }
+    return index;
+}
+
+void ROKAEArm::EmitSpike(Simulation* simulation, int neuron_id, int time) {
+    if (simulation == nullptr || simulation->network == nullptr ||
+        neuron_id < 0 || neuron_id >= simulation->network->neuronsNum) {
+        return;
+    }
+    simulation->QueueOuterDynamicInputSpike(time, neuron_id);
 }
 
 void ROKAEArm::ValidateSize(const std::vector<double>& values, const char* name) const {
